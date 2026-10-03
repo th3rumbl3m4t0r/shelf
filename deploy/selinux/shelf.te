@@ -1,0 +1,155 @@
+policy_module(shelf, 1.1)
+
+# shelf, its reverse ssh tunnel to the public edge, and the apk page (port 88),
+# each in a domain of its own; install.sh loads this and labels the files
+
+########################################
+#
+# Declarations
+#
+
+type shelf_t;
+type shelf_exec_t;
+init_daemon_domain(shelf_t, shelf_exec_t)
+init_nnp_daemon_domain(shelf_t)
+
+# SHELF_DATA: database, secret.key, user files, thumbnails, edge certificate
+type shelf_data_t;
+files_type(shelf_data_t)
+
+# /etc/shelf; systemd reads shelf.env as well
+type shelf_conf_t;
+files_config_file(shelf_conf_t)
+
+# sqlite's temp files, in the unit's PrivateTmp
+type shelf_tmp_t;
+files_tmp_file(shelf_tmp_t)
+
+type shelf_tunnel_t;
+type shelf_tunnel_exec_t;
+init_daemon_domain(shelf_tunnel_t, shelf_tunnel_exec_t)
+init_nnp_daemon_domain(shelf_tunnel_t)
+
+# the tunnel's key and the edge host's host key; not for shelf itself
+type shelf_tunnel_key_t;
+files_type(shelf_tunnel_key_t)
+
+type shelf_apk_t;
+type shelf_apk_exec_t;
+init_daemon_domain(shelf_apk_t, shelf_apk_exec_t)
+init_nnp_daemon_domain(shelf_apk_t)
+
+# /srv/shelf-apk, written by android/publish.sh
+type shelf_apk_content_t;
+files_type(shelf_apk_content_t)
+
+########################################
+#
+# shelf
+#
+
+allow shelf_t self:capability net_bind_service;
+allow shelf_t self:process { getsched signal_perms };
+allow shelf_t self:fifo_file rw_fifo_file_perms;
+allow shelf_t self:unix_stream_socket create_stream_socket_perms;
+allow shelf_t self:tcp_socket create_stream_socket_perms;
+
+files_search_home(shelf_t)
+manage_dirs_pattern(shelf_t, shelf_data_t, shelf_data_t)
+manage_files_pattern(shelf_t, shelf_data_t, shelf_data_t)
+manage_lnk_files_pattern(shelf_t, shelf_data_t, shelf_data_t)
+# sqlite maps shelf.db-shm
+allow shelf_t shelf_data_t:file map;
+
+read_files_pattern(shelf_t, shelf_conf_t, shelf_conf_t)
+
+manage_dirs_pattern(shelf_t, shelf_tmp_t, shelf_tmp_t)
+manage_files_pattern(shelf_t, shelf_tmp_t, shelf_tmp_t)
+files_tmp_filetrans(shelf_t, shelf_tmp_t, { file dir })
+
+# the backup keeps a copy of the unit
+systemd_read_unit_files(shelf_t)
+
+# SHELF_BIND (80) and SHELF_EDGE_BIND (8080)
+corenet_tcp_bind_generic_node(shelf_t)
+corenet_tcp_bind_http_port(shelf_t)
+corenet_tcp_bind_http_cache_port(shelf_t)
+# SFTP mounts and the backup target
+corenet_tcp_connect_ssh_port(shelf_t)
+# AS number lookups at stat.ripe.net
+corenet_tcp_connect_http_port(shelf_t)
+# the UPS status page (SHELF_UPS_URL, port 8765)
+corenet_tcp_connect_lirc_port(shelf_t)
+sysnet_dns_name_resolve(shelf_t)
+
+# the hostname, the worker count, free space
+kernel_read_kernel_sysctls(shelf_t)
+fs_search_cgroup_dirs(shelf_t)
+fs_read_cgroup_files(shelf_t)
+dev_read_sysfs(shelf_t)
+fs_getattr_xattr_fs(shelf_t)
+
+miscfiles_read_localization(shelf_t)
+logging_send_syslog_msg(shelf_t)
+
+########################################
+#
+# shelf-tunnel: a shell script that execs ssh, which stays in this domain
+#
+
+allow shelf_tunnel_t self:fifo_file rw_fifo_file_perms;
+allow shelf_tunnel_t self:unix_stream_socket create_stream_socket_perms;
+allow shelf_tunnel_t self:tcp_socket create_stream_socket_perms;
+
+corecmd_exec_shell(shelf_tunnel_t)
+ssh_exec(shelf_tunnel_t)
+
+allow shelf_tunnel_t shelf_conf_t:dir search_dir_perms;
+read_files_pattern(shelf_tunnel_t, shelf_tunnel_key_t, shelf_tunnel_key_t)
+
+corenet_tcp_connect_ssh_port(shelf_tunnel_t)
+# the edge host's connections come out at the edge listener, 127.0.0.1:8080
+corenet_tcp_connect_http_cache_port(shelf_tunnel_t)
+sysnet_dns_name_resolve(shelf_tunnel_t)
+
+# ssh_config and the crypto policy it includes
+files_read_etc_files(shelf_tunnel_t)
+files_read_usr_files(shelf_tunnel_t)
+dev_read_urand(shelf_tunnel_t)
+auth_use_nsswitch(shelf_tunnel_t)
+miscfiles_read_localization(shelf_tunnel_t)
+logging_send_syslog_msg(shelf_tunnel_t)
+
+# ssh looks for ~/.ssh; shelf's home has none and the tunnel needs none
+files_search_home(shelf_tunnel_t)
+dontaudit shelf_tunnel_t shelf_data_t:dir search_dir_perms;
+
+########################################
+#
+# shelf-apk: serve.py, run by python3
+#
+
+allow shelf_apk_t self:capability net_bind_service;
+allow shelf_apk_t self:fifo_file rw_fifo_file_perms;
+allow shelf_apk_t self:unix_stream_socket create_stream_socket_perms;
+allow shelf_apk_t self:tcp_socket create_stream_socket_perms;
+
+corecmd_exec_bin(shelf_apk_t)
+files_read_usr_files(shelf_apk_t)
+
+files_search_var(shelf_apk_t)
+list_dirs_pattern(shelf_apk_t, shelf_apk_content_t, shelf_apk_content_t)
+read_files_pattern(shelf_apk_t, shelf_apk_content_t, shelf_apk_content_t)
+
+# port 88 is labelled kerberos_port_t
+corenet_tcp_bind_generic_node(shelf_apk_t)
+corenet_tcp_bind_kerberos_port(shelf_apk_t)
+# the server looks up its own name at start; nss-myhostname checks whether
+# IPv6 is on
+sysnet_dns_name_resolve(shelf_apk_t)
+auth_use_nsswitch(shelf_apk_t)
+kernel_read_network_state_symlinks(shelf_apk_t)
+kernel_read_net_sysctls(shelf_apk_t)
+
+miscfiles_read_localization(shelf_apk_t)
+logging_send_syslog_msg(shelf_apk_t)

@@ -1,0 +1,4 @@
+#!/bin/sh
+# shelf-tunnel.service runs ssh through this file, so that the tunnel gets a
+# domain of its own (shelf_tunnel_t, deploy/selinux) instead of ssh's usual one
+exec /usr/bin/ssh "$@"

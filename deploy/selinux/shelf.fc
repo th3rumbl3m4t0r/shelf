@@ -1,0 +1,13 @@
+/opt/shelf/target/release/shelf	--	gen_context(system_u:object_r:shelf_exec_t,s0)
+# cargo hard-links the binary here too; both names need the same label
+/opt/shelf/target/release/deps/shelf-[0-9a-f]+	--	gen_context(system_u:object_r:shelf_exec_t,s0)
+/opt/shelf/deploy/shelf-tunnel	--	gen_context(system_u:object_r:shelf_tunnel_exec_t,s0)
+/opt/shelf/android/serve\.py	--	gen_context(system_u:object_r:shelf_apk_exec_t,s0)
+
+/etc/shelf(/.*)?			gen_context(system_u:object_r:shelf_conf_t,s0)
+/etc/shelf/tunnel_.*	--	gen_context(system_u:object_r:shelf_tunnel_key_t,s0)
+
+/srv/shelf-apk(/.*)?			gen_context(system_u:object_r:shelf_apk_content_t,s0)
+
+# /home/shelf (shelf_data_t) is a semanage rule in install.sh: the home
+# directory rules in file_contexts.homedirs win over a line here

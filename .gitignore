@@ -1,0 +1,13 @@
+target/
+
+# android
+android/.gradle/
+android/.kotlin/
+android/build/
+android/app/build/
+android/local.properties
+
+# selinux build output
+deploy/selinux/tmp/
+deploy/selinux/shelf.if
+deploy/selinux/shelf.pp

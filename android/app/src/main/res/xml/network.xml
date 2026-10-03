@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- plain http only for shelf on the home network: the host of -PshelfLanUrl -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">shelf.lan</domain>
+    </domain-config>
+</network-security-config>

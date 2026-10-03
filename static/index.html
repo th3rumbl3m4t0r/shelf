@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>shelf</title>
+<link rel="icon" href="/static/favicon.svg?v={{v}}" type="image/svg+xml">
+<link rel="stylesheet" href="/static/x11.css?v={{v}}">
+<link rel="stylesheet" href="/static/app.css?v={{v}}">
+<script src="/static/x11.js?v={{v}}"></script>
+<script defer src="/static/util.js?v={{v}}"></script>
+<script defer src="/static/viewer.js?v={{v}}"></script>
+<script defer src="/static/csv.js?v={{v}}"></script>
+<script defer src="/static/xlsx.js?v={{v}}"></script>
+<script defer src="/static/ods.js?v={{v}}"></script>
+<script defer src="/static/sheet.js?v={{v}}"></script>
+<script defer src="/static/rtf.js?v={{v}}"></script>
+<script defer src="/static/app.js?v={{v}}"></script>
+</head>
+<body class="anon">
+<header id="topbar"><div class="bar">
+  <a class="brand" href="/files/home/">shelf <small>// {{host}}</small></a>
+  <nav id="nav"></nav>
+  <span class="spacer"></span>
+  <span id="who" class="group"></span>
+  <span data-x11-controls></span>
+</div></header>
+<main id="app"></main>
+<footer class="statusbar">
+  <span id="busy" hidden>[<i></i>]</span>
+  <span id="status"></span>
+  <span class="spacer"></span>
+  <span id="up-status"></span>
+</footer>
+<noscript><p class="bad" style="padding:1em">shelf needs javascript.</p></noscript>
+</body>
+</html>
