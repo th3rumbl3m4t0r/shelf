@@ -171,9 +171,9 @@ fn stamp(ts: i64) -> String {
     )
 }
 
-/// Seconds of a [`stamp`], reading local time as if it were UTC; only
-/// differences are used. None for anything that is not a stamp.
-fn stamp_secs(s: &str) -> Option<i64> {
+/// Year, month, day, hour, minute and second of a [`stamp`]. None for
+/// anything that is not a stamp.
+fn stamp_fields(s: &str) -> Option<[i64; 6]> {
     let b = s.as_bytes();
     if b.len() != 17 || b[4] != b'-' || b[7] != b'-' || b[10] != b'T' {
         return None;
@@ -189,12 +189,37 @@ fn stamp_secs(s: &str) -> Option<i64> {
     if !(1..=12).contains(&mo) || !(1..=31).contains(&d) || h > 23 || mi > 59 || se > 60 {
         return None;
     }
+    Some([y, mo, d, h, mi, se])
+}
+
+/// Seconds of a [`stamp`], reading local time as if it were UTC; only
+/// differences are used. None for anything that is not a stamp.
+pub fn stamp_secs(s: &str) -> Option<i64> {
+    let [y, mo, d, h, mi, se] = stamp_fields(s)?;
     // days from the civil date, after Howard Hinnant
     let y = if mo <= 2 { y - 1 } else { y };
     let doy = (153 * ((mo + 9) % 12) + 2) / 5 + d - 1;
     let yoe = y % 400;
     let days = y / 400 * 146097 + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719468;
     Some(days * 86400 + h * 3600 + mi * 60 + se)
+}
+
+/// When the snapshot named by a [`stamp`] was started, read back as local time.
+pub fn stamp_time(s: &str) -> Option<i64> {
+    let [y, mo, d, h, mi, se] = stamp_fields(s)?;
+    // SAFETY: mktime only reads and normalises the tm it is given
+    let t = unsafe {
+        let mut tm: libc::tm = std::mem::zeroed();
+        tm.tm_year = (y - 1900) as i32;
+        tm.tm_mon = (mo - 1) as i32;
+        tm.tm_mday = d as i32;
+        tm.tm_hour = h as i32;
+        tm.tm_min = mi as i32;
+        tm.tm_sec = se as i32;
+        tm.tm_isdst = -1;
+        libc::mktime(&mut tm)
+    };
+    (t != -1).then_some(t as i64)
 }
 
 /// Which snapshots to keep, given their times newest first; returns indices.
@@ -475,12 +500,14 @@ struct Stats {
 }
 
 /// size, mtime seconds, mtime nanoseconds, sha256
-type Rec = (u64, i64, u32, String);
+pub type Rec = (u64, i64, u32, String);
 
+/// `manifest.json` of a snapshot; versions.rs reads it too.
 #[derive(Serialize, Deserialize, Default)]
-struct Manifest {
-    finished: i64,
-    files: BTreeMap<String, Rec>,
+pub struct Manifest {
+    pub finished: i64,
+    /// by path inside the snapshot (`users/<name>/…`)
+    pub files: BTreeMap<String, Rec>,
 }
 
 struct Item {
@@ -669,18 +696,26 @@ async fn sync(app: &Arc<App>, conf: &Conf, st: &mut Stats, label: &str, snap: &P
 fn connect(app: &App, conf: &Conf) -> anyhow::Result<Arc<Sftp>> {
     app.backup.set("connecting");
     let cfg = target_cfg(app, conf).map_err(|e| anyhow!(e.msg))?;
-    let db = app.db.clone();
-    Ok(Sftp::new(
-        cfg,
-        Arc::new(move |fp: &str| {
-            if let Ok(Some(mut c)) = load(&db) {
-                if c.host_key.is_none() {
-                    c.host_key = Some(fp.into());
-                    store(&db, &c).ok();
-                }
+    Ok(Sftp::new(cfg, pin(app.db.clone())))
+}
+
+/// Keeps the target's host key the first time it is seen.
+fn pin(db: Arc<Db>) -> sftp::PinFn {
+    Arc::new(move |fp: &str| {
+        if let Ok(Some(mut c)) = load(&db) {
+            if c.host_key.is_none() {
+                c.host_key = Some(fp.into());
+                store(&db, &c).ok();
             }
-        }),
-    ))
+        }
+    })
+}
+
+/// The target, for reading snapshots (versions.rs), from the `backup` setting
+/// as stored.
+pub fn reader(app: &App, setting: &str) -> Res<Arc<Sftp>> {
+    let conf: Conf = serde_json::from_str(setting).map_err(AppError::internal)?;
+    Ok(Sftp::new(target_cfg(app, &conf)?, pin(app.db.clone())))
 }
 
 /// Writes `.partial-<label>`, renames it to `<label>` once complete, then
@@ -1098,6 +1133,8 @@ mod tests {
         }
         let t = 1_790_478_900;
         assert_eq!(stamp_secs(&stamp(t + DAY)).unwrap() - stamp_secs(&stamp(t)).unwrap(), DAY);
+        assert_eq!(stamp_time(&stamp(t)), Some(t));
+        assert_eq!(stamp_time("2026-09-27T0315"), None);
     }
 
     #[test]

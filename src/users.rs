@@ -4,7 +4,7 @@ use axum::{
     extract::{Extension, Path, State},
     http::{header, HeaderMap},
     response::{IntoResponse, Response},
-    routing::{get, patch, post},
+    routing::{get, patch, post, put},
     Json, Router,
 };
 use rusqlite::params;
@@ -14,10 +14,10 @@ use serde_json::{json, Value};
 use crate::{
     auth::{self, Admin, User},
     crypto,
-    db::now,
+    db::{self, now},
     edge::{self, Remote},
     error::{AppError, Res},
-    App,
+    quota, App,
 };
 
 pub fn routes() -> Router<Arc<App>> {
@@ -25,6 +25,7 @@ pub fn routes() -> Router<Arc<App>> {
         .route("/api/login", post(login))
         .route("/api/logout", post(logout))
         .route("/api/me", get(me))
+        .route("/api/me/lang", put(set_lang))
         .route("/api/password", post(password))
         .route("/api/usernames", get(usernames))
         .route("/api/users", get(list).post(create))
@@ -68,7 +69,7 @@ fn user_json(r: &rusqlite::Row) -> rusqlite::Result<Value> {
     Ok(json!({
         "id": r.get::<_, i64>(0)?, "username": r.get::<_, String>(1)?,
         "admin": r.get::<_, bool>(2)?, "disabled": r.get::<_, bool>(3)?, "created": r.get::<_, i64>(4)?,
-        "remote": r.get::<_, String>(5)?,
+        "remote": r.get::<_, String>(5)?, "quota": r.get::<_, Option<i64>>(6)?,
     }))
 }
 
@@ -129,12 +130,31 @@ async fn logout(State(app): State<Arc<App>>, remote: Option<Extension<Remote>>, 
     Ok(([(header::SET_COOKIE, auth::session_cookie(&app, "", 0, remote.is_some()))], Json(json!({ "ok": true }))).into_response())
 }
 
-async fn me(State(app): State<Arc<App>>, remote: Option<Extension<Remote>>, user: User) -> Json<Value> {
-    Json(json!({
-        "id": user.id, "username": user.username, "admin": user.admin,
+async fn me(State(app): State<Arc<App>>, remote: Option<Extension<Remote>>, user: User) -> Res<Json<Value>> {
+    let lang: String = app.db.with(|c| c.query_row("SELECT lang FROM users WHERE id = ?1", [user.id], |r| r.get(0)))?;
+    Ok(Json(json!({
+        "id": user.id, "username": user.username, "admin": user.admin, "lang": lang,
         "host": app.cfg.host, "version": env!("CARGO_PKG_VERSION"),
         "public_url": app.cfg.public_url, "remote": remote.map(|Extension(Remote(ip))| ip.to_string()),
-    }))
+        // earlier versions come from the backup
+        "versions": db::get_setting(&app.db, "backup")?.is_some(),
+    })))
+}
+
+/// UI languages (static/i18n.js has the texts); "" goes back to the browser's.
+pub const LANGS: &[&str] = &["en", "cs", "sk", "hu", "fr"];
+
+#[derive(Deserialize)]
+struct LangReq {
+    lang: String,
+}
+
+async fn set_lang(State(app): State<Arc<App>>, user: User, Json(req): Json<LangReq>) -> Res<Json<Value>> {
+    if !req.lang.is_empty() && !LANGS.contains(&req.lang.as_str()) {
+        return Err(AppError::bad("unknown language"));
+    }
+    app.db.with(|c| c.execute("UPDATE users SET lang = ?1 WHERE id = ?2", params![req.lang, user.id]))?;
+    Ok(Json(json!({ "lang": req.lang })))
 }
 
 #[derive(Deserialize)]
@@ -154,8 +174,9 @@ async fn password(State(app): State<Arc<App>>, user: User, headers: HeaderMap, J
     let keep = auth::cookie_token(&headers).map(|t| crypto::sha256_hex(&t)).unwrap_or_default();
     app.db.with(|c| {
         c.execute("UPDATE users SET pw_hash = ?1 WHERE id = ?2", params![new_hash, user.id])?;
-        // other devices have to log in again
-        c.execute("DELETE FROM sessions WHERE user_id = ?1 AND token_hash != ?2", params![user.id, keep])
+        // other devices have to log in again, and so do the programs signed in to
+        c.execute("DELETE FROM sessions WHERE user_id = ?1 AND token_hash != ?2", params![user.id, keep])?;
+        c.execute("DELETE FROM oidc_tokens WHERE user_id = ?1", [user.id])
     })?;
     Ok(Json(json!({ "ok": true })))
 }
@@ -171,10 +192,17 @@ async fn usernames(State(app): State<Arc<App>>, _user: User) -> Res<Json<Value>>
 
 async fn list(State(app): State<Arc<App>>, _a: Admin) -> Res<Json<Value>> {
     let users = app.db.with(|c| {
-        let mut st = c.prepare("SELECT id, username, is_admin, disabled, created, remote_cidrs FROM users ORDER BY username")?;
+        let mut st = c.prepare("SELECT id, username, is_admin, disabled, created, remote_cidrs, quota FROM users ORDER BY username")?;
         let v = st.query_map([], user_json)?.collect::<rusqlite::Result<Vec<_>>>();
         v
     })?;
+    // how full the homes with a limit are
+    let mut users = users;
+    for u in users.iter_mut().filter(|u| u["quota"].is_number()) {
+        if let Some(id) = u["id"].as_i64() {
+            u["used"] = json!(app.quotas.used(&app, id).await.ok());
+        }
+    }
     Ok(Json(json!(users)))
 }
 
@@ -200,6 +228,8 @@ struct UpdateReq {
     password: Option<String>,
     /// networks (CIDR, AS numbers) for outside access, `""`: none
     remote: Option<String>,
+    /// room in the home, as `quota::parse` takes it; `""`: no limit
+    quota: Option<String>,
 }
 
 async fn update(State(app): State<Arc<App>>, Admin(a): Admin, Path(id): Path<i64>, Json(req): Json<UpdateReq>) -> Res<Json<Value>> {
@@ -214,6 +244,7 @@ async fn update(State(app): State<Arc<App>>, Admin(a): Admin, Path(id): Path<i64
         None => None,
     };
     let remote = req.remote.as_deref().map(edge::normalize).transpose().map_err(AppError::bad)?;
+    let quota = req.quota.as_deref().map(quota::parse).transpose()?;
     let n = app.db.with(|c| {
         let mut n = 0;
         if let Some(v) = req.admin {
@@ -223,19 +254,27 @@ async fn update(State(app): State<Arc<App>>, Admin(a): Admin, Path(id): Path<i64
             n += c.execute("UPDATE users SET disabled = ?1 WHERE id = ?2", params![v, id])?;
             if v {
                 c.execute("DELETE FROM sessions WHERE user_id = ?1", [id])?;
+                c.execute("DELETE FROM oidc_tokens WHERE user_id = ?1", [id])?;
             }
         }
         if let Some(h) = &hash {
             n += c.execute("UPDATE users SET pw_hash = ?1 WHERE id = ?2", params![h, id])?;
             c.execute("DELETE FROM sessions WHERE user_id = ?1", [id])?;
+            c.execute("DELETE FROM oidc_tokens WHERE user_id = ?1", [id])?;
         }
         if let Some(r) = &remote {
             n += c.execute("UPDATE users SET remote_cidrs = ?1 WHERE id = ?2", params![r, id])?;
+        }
+        if let Some(q) = quota {
+            n += c.execute("UPDATE users SET quota = ?1 WHERE id = ?2", params![q.map(|q| q as i64), id])?;
         }
         Ok(n)
     })?;
     if n == 0 {
         return Err(AppError::not_found());
+    }
+    if let Some(q) = quota {
+        tracing::info!("{} set the storage limit of user {id} to {}", a.username, q.map_or("none".into(), |q| format!("{q} bytes")));
     }
     let mut note = None;
     if let Some(r) = &remote {
@@ -288,7 +327,7 @@ async fn remove(State(app): State<Arc<App>>, Admin(a): Admin, Path(id): Path<i64
     Ok(Json(json!({ "ok": true, "files_kept_at": moved.then(|| kept.display().to_string()) })))
 }
 
-/// `shelf user add|passwd|remote|list …` for the first admin and for lockouts.
+/// `shelf user add|passwd|remote|limit|list …` for the first admin and for lockouts.
 pub fn cli(app: &App, args: &[String]) -> anyhow::Result<()> {
     let flag = |f: &str| args.iter().any(|a| a == f);
     let read_pw = || -> anyhow::Result<String> {
@@ -327,10 +366,16 @@ pub fn cli(app: &App, args: &[String]) -> anyhow::Result<()> {
                 eprintln!("{note}");
             }
         }
+        (Some("limit"), Some(name)) => {
+            let q = quota::parse(args.get(2).map_or("", String::as_str)).map_err(e)?;
+            let n = app.db.with(|c| c.execute("UPDATE users SET quota = ?1 WHERE username = ?2", params![q.map(|q| q as i64), name])).map_err(e)?;
+            anyhow::ensure!(n == 1, "no user {name}");
+            eprintln!("{name}: {}", q.map_or("no storage limit".into(), |q| format!("storage limit {q} bytes")));
+        }
         (Some("list"), _) => {
             app.db
                 .with(|c| {
-                    let mut st = c.prepare("SELECT id, username, is_admin, disabled, created, remote_cidrs FROM users ORDER BY username")?;
+                    let mut st = c.prepare("SELECT id, username, is_admin, disabled, created, remote_cidrs, quota FROM users ORDER BY username")?;
                     for u in st.query_map([], user_json)? {
                         println!("{}", u?);
                     }
@@ -338,7 +383,7 @@ pub fn cli(app: &App, args: &[String]) -> anyhow::Result<()> {
                 })
                 .map_err(e)?;
         }
-        _ => anyhow::bail!("usage: shelf user add <name> [--admin] [--random] | passwd <name> [--random] | remote <name> [cidr|AS<n> …] | list"),
+        _ => anyhow::bail!("usage: shelf user add <name> [--admin] [--random] | passwd <name> [--random] | remote <name> [cidr|AS<n> …] | limit <name> [50G|1.5T|…] | list"),
     }
     Ok(())
 }

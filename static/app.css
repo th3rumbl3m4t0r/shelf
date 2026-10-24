@@ -8,6 +8,7 @@ html, body { height: 100%; }
 body { display: flex; flex-direction: column; overflow: hidden; }
 #topbar, .statusbar { flex: none; }
 #topbar #who button { padding: 1px 6px; font-size: 11px; }
+#topbar .lang-pick { padding: 1px 2px; font-size: 11px; margin-right: 6px; }
 #app { flex: 1; min-height: 0; overflow: auto; padding: 10px; }
 #app.fill { overflow: hidden; display: flex; flex-direction: column; }
 #app.fill > * { flex: 1; min-height: 0; }
@@ -183,6 +184,10 @@ table.files tr.cur td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .pick-item:hover { background: var(--panel-2); }
 .share table.x11 { margin-bottom: 4px; }
 .share select { min-width: 160px; }
+.versions .vlist { border: 1px solid var(--border); background: var(--bg); height: 320px; overflow: auto; }
+.versions .vlist > div { padding: 3px 8px; }
+.versions table.x11 td.nm { word-break: break-word; }
+.tag.warn { color: var(--warn); border-color: var(--warn); }
 .mono { font-family: monospace; font-size: 12px; }
 pre.mono { white-space: pre-wrap; word-break: break-all; background: var(--panel-2); border: 1px solid var(--border); padding: 4px 6px; }
 

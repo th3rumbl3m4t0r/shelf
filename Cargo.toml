@@ -37,6 +37,9 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png",
 jpeg-decoder = { version = "0.3", default-features = false }
 kamadak-exif = "0.6"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+# OpenID Connect: rsa makes the key, ring signs with it
+rsa = "0.9"
+ring = "0.17"
 
 [profile.release]
 lto = "thin"

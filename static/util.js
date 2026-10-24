@@ -68,11 +68,11 @@ function fmtSize(n) {
   do { n /= 1024; i++; } while (n >= 1024 && i < u.length - 1);
   return (n < 10 ? n.toFixed(1) : Math.round(n)) + ' ' + u[i];
 }
-/* at most two digits and a letter: 75G, 2.9T */
-function fmtShort(n) {
+/* at most two digits and a letter: 75G, 2.9T; three with top 999.5: 150G */
+function fmtShort(n, top) {
   const u = ['B', 'K', 'M', 'G', 'T', 'P'];
   let i = 0;
-  while (n >= 99.5 && i < u.length - 1) { n /= 1024; i++; }
+  while (n >= (top || 99.5) && i < u.length - 1) { n /= 1024; i++; }
   return (i > 0 && n < 9.95 ? n.toFixed(1) : Math.round(n)) + u[i];
 }
 function pad2(n) { return (n < 10 ? '0' : '') + n; }
@@ -92,12 +92,12 @@ async function api(method, url, body) {
   const o = { method, headers: { 'x-shelf': '1' }, credentials: 'same-origin' };
   if (body !== undefined) { o.headers['content-type'] = 'application/json'; o.body = JSON.stringify(body); }
   let r;
-  try { r = await fetch(url, o); } catch (e) { throw new ApiError('server unreachable', 0); }
+  try { r = await fetch(url, o); } catch (e) { throw new ApiError(tx('server unreachable'), 0); }
   let data = null;
   try { data = await r.json(); } catch (e) { /* not JSON */ }
   if (!r.ok) {
     if (r.status === 401 && window.onUnauthorized) window.onUnauthorized();
-    throw new ApiError((data && data.error) || (r.status + ' ' + r.statusText), r.status);
+    throw new ApiError(txErr((data && data.error) || (r.status + ' ' + r.statusText)), r.status);
   }
   return data;
 }
@@ -110,14 +110,14 @@ function toast(msg, kind) {
     el = h('div', { id: 'toast', class: 'win toast' }, h('div', { class: 'titlebar' }), h('div', { class: 'body' }));
     document.body.appendChild(el);
   }
-  el.querySelector('.titlebar').textContent = kind === 'err' ? 'error' : kind === 'warn' ? 'note' : 'ok';
+  el.querySelector('.titlebar').textContent = kind === 'err' ? tx('error') : kind === 'warn' ? tx('note') : tx('ok');
   el.querySelector('.titlebar').className = 'titlebar' + (kind === 'err' ? ' bad' : '');
   el.querySelector('.body').textContent = msg;
   el.hidden = false;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { el.hidden = true; }, kind === 'err' ? 6000 : 2500);
 }
-function fail(e) { toast(e && e.message ? e.message : String(e), 'err'); }
+function fail(e) { toast(txErr(e && e.message ? e.message : String(e)), 'err'); }
 
 /* ---- dialogs: a .win over a dimmed page, instant ---- */
 let dlgOpen = 0;
@@ -128,7 +128,7 @@ function dialog(opts) {
     const body = h('div', { class: 'body' }, opts.body || null);
     const win = h('div', { class: 'win dlg' + (opts.wide ? ' wide' : ''), role: 'dialog' },
       h('div', { class: 'titlebar' }, h('span', { class: 'grip', text: '::' }), opts.title || '', h('span', { class: 'spacer' }),
-        h('button', { class: 'dlg-x', text: 'x', title: 'close (esc)', onclick: () => done(null) })),
+        h('button', { class: 'dlg-x', text: 'x', title: tx('close (esc)'), onclick: () => done(null) })),
       body, btns);
     const back = h('div', { class: 'dlg-back' }, win);
     let finished = false, checking = false;
@@ -151,7 +151,7 @@ function dialog(opts) {
       if (prev && prev.focus) prev.focus();
       resolve(v);
     }
-    (opts.buttons || [{ label: 'ok', value: true, primary: true }]).forEach(b => {
+    (opts.buttons || [{ label: tx('ok'), value: true, primary: true }]).forEach(b => {
       btns.appendChild(h('button', { class: (b.primary ? 'primary' : '') + (b.danger ? ' danger' : ''), text: b.label,
         onclick: () => done(typeof b.value === 'function' ? b.value() : b.value) }));
     });
@@ -204,7 +204,7 @@ function ask(title, label, value, okLabel) {
   const inp = h('input', { type: 'text', value: value || '', spellcheck: false, class: 'wide' });
   return dialog({
     title, body: [h('label', { class: 'lbl', text: label }), inp],
-    buttons: [{ label: 'cancel', value: null }, { label: okLabel || 'ok', primary: true, value: () => inp.value }],
+    buttons: [{ label: tx('cancel'), value: null }, { label: okLabel || tx('ok'), primary: true, value: () => inp.value }],
     // select the name without its extension, like a file manager
     select: el => { const v = el.value, i = v.lastIndexOf('.'); el.setSelectionRange(0, i > 0 ? i : v.length); },
   });
@@ -213,7 +213,7 @@ function ask(title, label, value, okLabel) {
 function confirmBox(title, text, okLabel, danger) {
   return dialog({
     title, body: h('div', { class: 'dlg-text', text }),
-    buttons: [{ label: 'cancel', value: false }, { label: okLabel || 'ok', primary: true, danger, value: true }],
+    buttons: [{ label: tx('cancel'), value: false }, { label: okLabel || tx('ok'), primary: true, danger, value: true }],
   }).then(v => !!v);
 }
 

@@ -808,21 +808,21 @@ class RtfEditor {
       el.addEventListener('click', fn);
       return el;
     };
-    this.bb = b('b', 'bold (ctrl+b)', cmd('bold'), 'fmt-b');
-    this.bi = b('i', 'italic (ctrl+i)', cmd('italic'), 'fmt-i');
-    this.bu = b('u', 'underline (ctrl+u)', cmd('underline'), 'fmt-u');
-    this.bs = b('s', 'strike through', cmd('strikeThrough'), 'fmt-s');
-    const fontSel = h('select', { title: 'font' },
-      h('option', { value: '', text: 'font' }),
+    this.bb = b('b', tx('bold (ctrl+b)'), cmd('bold'), 'fmt-b');
+    this.bi = b('i', tx('italic (ctrl+i)'), cmd('italic'), 'fmt-i');
+    this.bu = b('u', tx('underline (ctrl+u)'), cmd('underline'), 'fmt-u');
+    this.bs = b('s', tx('strike through'), cmd('strikeThrough'), 'fmt-s');
+    const fontSel = h('select', { title: tx('font') },
+      h('option', { value: '', text: tx('font') }),
       [this.font, 'Arial', 'Calibri', 'Cambria', 'Courier New', 'Georgia', 'Liberation Serif', 'Times New Roman', 'Verdana']
         .filter((f, i, a) => a.indexOf(f) === i).map(f => h('option', { value: f, text: f })));
     fontSel.addEventListener('change', () => { if (fontSel.value) { cmd('fontName', fontSel.value)(); } fontSel.value = ''; });
-    const sizeSel = h('select', { title: 'size (pt)' }, h('option', { value: '', text: 'size' }),
+    const sizeSel = h('select', { title: tx('size (pt)') }, h('option', { value: '', text: tx('size') }),
       [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48].map(s => h('option', { value: s, text: s + 'pt' })));
     sizeSel.addEventListener('change', () => { if (sizeSel.value) this.fontSize(+sizeSel.value); sizeSel.value = ''; });
-    const color = h('input', { type: 'color', value: '#c0473b', title: 'text colour' });
+    const color = h('input', { type: 'color', value: '#c0473b', title: tx('text colour') });
     color.addEventListener('input', () => cmd('foreColor', color.value)());
-    const mark = h('input', { type: 'color', value: '#ffff00', title: 'highlight' });
+    const mark = h('input', { type: 'color', value: '#ffff00', title: tx('highlight') });
     mark.addEventListener('input', () => cmd('hiliteColor', mark.value)());
     this.paper = h('input', { type: 'checkbox', checked: localStorage.getItem('shelf.paper') !== '0' });
     this.paper.addEventListener('change', () => {
@@ -831,20 +831,20 @@ class RtfEditor {
     });
     const bar = h('div', { class: 'toolbar rtf-bar' },
       ro ? null : [
-        b('undo', 'undo (ctrl+z)', cmd('undo')), b('redo', 'redo (ctrl+y)', cmd('redo')), h('span', { class: 'sep' }),
+        b(tx('undo'), tx('undo (ctrl+z)'), cmd('undo')), b(tx('redo'), tx('redo (ctrl+y)'), cmd('redo')), h('span', { class: 'sep' }),
         this.bb, this.bi, this.bu, this.bs,
-        b('x²', 'superscript', cmd('superscript')), b('x₂', 'subscript', cmd('subscript')), h('span', { class: 'sep' }),
-        fontSel, sizeSel, color, b('auto', 'automatic text colour', () => this.autoColor()), mark,
-        b('clear', 'remove formatting', cmd('removeFormat')), h('span', { class: 'sep' }),
-        b('left', 'align left', cmd('justifyLeft')), b('center', 'center', cmd('justifyCenter')),
-        b('right', 'align right', cmd('justifyRight')), b('justify', 'justify', cmd('justifyFull')), h('span', { class: 'sep' }),
-        b('• list', 'bullet list', cmd('insertUnorderedList')), b('1. list', 'numbered list', cmd('insertOrderedList')),
-        b('>>', 'indent', cmd('indent')), b('<<', 'outdent', cmd('outdent')), h('span', { class: 'sep' }),
-        b('link', 'link (ctrl+k)', () => this.link()), b('image', 'insert a picture (PNG / JPEG)', () => this.image()),
-        b('table', 'insert a table', () => this.table()), b('rule', 'horizontal line', cmd('insertHorizontalRule')),
+        b('x²', tx('superscript'), cmd('superscript')), b('x₂', tx('subscript'), cmd('subscript')), h('span', { class: 'sep' }),
+        fontSel, sizeSel, color, b(tx('auto'), tx('automatic text colour'), () => this.autoColor()), mark,
+        b(tx('clear'), tx('remove formatting'), cmd('removeFormat')), h('span', { class: 'sep' }),
+        b(tx('left'), tx('align left'), cmd('justifyLeft')), b(tx('center'), tx('center'), cmd('justifyCenter')),
+        b(tx('right'), tx('align right'), cmd('justifyRight')), b(tx('justify'), tx('justify'), cmd('justifyFull')), h('span', { class: 'sep' }),
+        b(tx('• list'), tx('bullet list'), cmd('insertUnorderedList')), b(tx('1. list'), tx('numbered list'), cmd('insertOrderedList')),
+        b('>>', tx('indent'), cmd('indent')), b('<<', tx('outdent'), cmd('outdent')), h('span', { class: 'sep' }),
+        b(tx('link'), tx('link (ctrl+k)'), () => this.link()), b(tx('image'), tx('insert a picture (PNG / JPEG)'), () => this.image()),
+        b(tx('table'), tx('insert a table'), () => this.table()), b(tx('rule'), tx('horizontal line'), cmd('insertHorizontalRule')),
       ],
       h('span', { class: 'spacer' }),
-      h('label', { class: 'chk', title: 'black on white, like print' }, this.paper, ' paper'));
+      h('label', { class: 'chk', title: tx('black on white, like print') }, this.paper, ' ' + tx('paper')));
     this.page = h('div', { class: 'rtf-page', contenteditable: ro ? 'false' : 'true', spellcheck: true });
     this.page.style.fontFamily = "'" + this.font.replace(/['"]/g, '') + "', sans-serif";
     this.page.innerHTML = doc.html || '<p><br></p>';
@@ -919,12 +919,12 @@ class RtfEditor {
     const sel = document.getSelection();
     const range = sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
     const a = sel.anchorNode && sel.anchorNode.parentElement && sel.anchorNode.parentElement.closest('a');
-    const url = await ask('link', 'address (empty removes the link)', a ? a.getAttribute('href') : 'https://', 'set');
+    const url = await ask(tx('link'), tx('address (empty removes the link)'), a ? a.getAttribute('href') : 'https://', tx('set'));
     if (url === null) return;
     this.page.focus();
     if (range) { sel.removeAllRanges(); sel.addRange(range); }
     if (!url.trim()) { document.execCommand('unlink'); this.touch(); return; }
-    if (!/^(https?:|mailto:)/i.test(url.trim())) { toast('links must start with http://, https:// or mailto:', 'err'); return; }
+    if (!/^(https?:|mailto:)/i.test(url.trim())) { toast(tx('links must start with http://, https:// or mailto:'), 'err'); return; }
     if (range && range.collapsed) document.execCommand('insertHTML', false, '<a href="' + url.trim().replace(/"/g, '%22') + '">' + escHtml(url.trim()) + '</a>');
     else document.execCommand('createLink', false, url.trim());
     this.touch();
@@ -937,7 +937,7 @@ class RtfEditor {
   }
 
   insertImage(file) {
-    if (!/^image\/(png|jpeg)$/.test(file.type)) { toast('only PNG and JPEG pictures go into RTF', 'err'); return; }
+    if (!/^image\/(png|jpeg)$/.test(file.type)) { toast(tx('only PNG and JPEG pictures go into RTF'), 'err'); return; }
     const r = new FileReader();
     r.onload = () => {
       const img = new Image();
@@ -960,10 +960,10 @@ class RtfEditor {
   }
 
   async table() {
-    const v = await ask('table', 'columns x rows', '3x3', 'insert');
+    const v = await ask(tx('table'), tx('columns x rows'), '3x3', tx('insert'));
     if (!v) return;
     const m = /^\s*(\d+)\s*[x×*, ]\s*(\d+)\s*$/.exec(v);
-    if (!m || +m[1] < 1 || +m[2] < 1 || +m[1] > 30 || +m[2] > 500) { toast('say it like 3x4 (columns x rows)', 'err'); return; }
+    if (!m || +m[1] < 1 || +m[2] < 1 || +m[1] > 30 || +m[2] > 500) { toast(tx('say it like 3x4 (columns x rows)'), 'err'); return; }
     const w = Math.floor(640 / +m[1]);
     let s = '<table class="rtf-table"><tbody>';
     for (let r = 0; r < +m[2]; r++) {

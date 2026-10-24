@@ -111,6 +111,7 @@ Errors have a status code and a JSON body with a message meant for people:
 | `404` | no such file or folder |
 | `409` | something is in the way: the target exists, the folder is not empty |
 | `412` | an `If-Match` / `If-None-Match` condition failed |
+| `507` | the upload does not fit within the storage limit of the folder owner's home (admin → users → limit) |
 | `416` | a `Range` outside the file |
 | `502` | the SFTP storage behind the folder failed or cannot be reached |
 

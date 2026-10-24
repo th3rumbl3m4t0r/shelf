@@ -337,28 +337,28 @@ class CsvGrid {
   /* the toolbar; b(label, title, fn, cls) makes a button that gives the focus back */
   toolbar(b) {
     const ro = this.ro;
-    this.bUndo = b('undo', 'undo (ctrl+z)', () => this.undo());
-    this.bRedo = b('redo', 'redo (ctrl+y)', () => this.redo());
-    this.delimSel = h('select', { title: 'delimiter used when saving', disabled: ro },
-      [[',', 'comma'], [';', 'semicolon'], ['\t', 'tab'], ['|', 'pipe']].map(([v, l]) => h('option', { value: v, text: l })));
+    this.bUndo = b(tx('undo'), tx('undo (ctrl+z)'), () => this.undo());
+    this.bRedo = b(tx('redo'), tx('redo (ctrl+y)'), () => this.redo());
+    this.delimSel = h('select', { title: tx('delimiter used when saving'), disabled: ro },
+      [[',', 'comma'], [';', 'semicolon'], ['\t', 'tab'], ['|', 'pipe']].map(([v, l]) => h('option', { value: v, text: tx(l) })));
     this.delimSel.value = this.delim;
     this.delimSel.addEventListener('change', () => { this.delim = this.delimSel.value; this.delimChanged = true; this.changed(); });
     return h('div', { class: 'toolbar csv-bar' },
       ro ? null : [this.bUndo, this.bRedo, h('span', { class: 'sep' }),
-        h('span', { class: 'lbl', text: 'row' }),
-        b('+above', 'insert a row above', () => this.addRow(0)), b('+below', 'insert a row below (ctrl+enter)', () => this.addRow(1)),
-        b('delete', 'delete the selected rows', () => this.delRows(), 'danger'), h('span', { class: 'sep' }),
-        h('span', { class: 'lbl', text: 'col' }),
-        b('+left', 'insert a column left', () => this.addCol(0)), b('+right', 'insert a column right', () => this.addCol(1)),
-        b('delete', 'delete the selected columns', () => this.delCols(), 'danger'), h('span', { class: 'sep' })],
-      b('sort a-z', 'sort by the current column', () => this.sort(this.cur.c, false)),
-      b('sort z-a', 'sort by the current column, descending', () => this.sort(this.cur.c, true)),
+        h('span', { class: 'lbl', text: tx('row') }),
+        b(tx('+above'), tx('insert a row above'), () => this.addRow(0)), b(tx('+below'), tx('insert a row below (ctrl+enter)'), () => this.addRow(1)),
+        b(tx('delete'), tx('delete the selected rows'), () => this.delRows(), 'danger'), h('span', { class: 'sep' }),
+        h('span', { class: 'lbl', text: tx('col') }),
+        b(tx('+left'), tx('insert a column left'), () => this.addCol(0)), b(tx('+right'), tx('insert a column right'), () => this.addCol(1)),
+        b(tx('delete'), tx('delete the selected columns'), () => this.delCols(), 'danger'), h('span', { class: 'sep' })],
+      b(tx('sort a-z'), tx('sort by the current column'), () => this.sort(this.cur.c, false)),
+      b(tx('sort z-a'), tx('sort by the current column, descending'), () => this.sort(this.cur.c, true)),
       this.headerBox(), this.filterBox(),
-      h('span', { class: 'lbl', text: 'delimiter' }), this.delimSel);
+      h('span', { class: 'lbl', text: tx('delimiter') }), this.delimSel);
   }
   filterBox() {
-    this.filterIn = h('input', { type: 'search', placeholder: 'filter rows', class: 'csv-filter', spellcheck: false,
-      title: 'text anywhere in the row; or for one column, by letter or header name:\nprice>100  B:abc  B!:abc  status=done  city<>Brno  date>=2025-01-01\nseveral with ; between\n(right click a column, or its ▾, for its values)' });
+    this.filterIn = h('input', { type: 'search', placeholder: tx('filter rows'), class: 'csv-filter', spellcheck: false,
+      title: tx('text anywhere in the row; or for one column, by letter or header name:\nprice>100  B:abc  B!:abc  status=done  city<>Brno  date>=2025-01-01\nseveral with ; between\n(right click a column, or its ▾, for its values)') });
     let ft = null;
     this.filterIn.addEventListener('input', () => {
       clearTimeout(ft);
@@ -369,7 +369,7 @@ class CsvGrid {
   headerBox() {
     this.headerCb = h('input', { type: 'checkbox', checked: this.header });
     this.headerCb.addEventListener('change', () => this.setHeader(this.headerCb.checked));
-    return h('label', { class: 'chk', title: 'the first row holds column names' }, this.headerCb, ' header');
+    return h('label', { class: 'chk', title: tx('the first row holds column names') }, this.headerCb, ' ' + tx('header'));
   }
   setHeader(on) { this.header = on; this.refresh(); }
 
@@ -433,8 +433,9 @@ class CsvGrid {
     const names = this.header && this.rows.length, f = c => (this.colf.has(c) ? ' f' : '');
     let used = 0;
     if (names) for (const row of this.rows) { let n = row.length; while (n > used && !row[n - 1]) n--; if (n > used) used = n; }
-    const af = c => '<i class="af' + f(c) + '" data-c="' + c + '" title="sort and filter (alt+down)">▾</i>';
-    let s = '<div class="r hr"><div class="n corner" title="select all"></div>';
+    const afT = escHtml(tx('sort and filter (alt+down)'));
+    const af = c => '<i class="af' + f(c) + '" data-c="' + c + '" title="' + afT + '">▾</i>';
+    let s = '<div class="r hr"><div class="n corner" title="' + escHtml(tx('select all')) + '"></div>';
     for (let c = 0; c < this.ncols; c++) s += '<div class="l' + f(c) + '" data-c="' + c + '">' + CSV.colName(c) + (names ? '' : af(c)) + '<i class="rz" data-c="' + c + '"></i></div>';
     s += '</div>';
     if (names) {
@@ -480,7 +481,7 @@ class CsvGrid {
     return '<div class="' + cls + '" data-r="' + i + '" data-c="' + c + '">' + (v ? escHtml(v.replace(/\r?\n/g, ' ⏎ ')) : '') + '</div>';
   }
   numAt(d, c) { return CSV.num(this.get(d, c)); }
-  statusHead() { return this.view.length + ' rows' + (this.filtered ? ' (filtered)' : '') + ' x ' + this.ncols + ' cols'; }
+  statusHead() { return txn(this.view.length, '{n} row', '{n} rows') + (this.filtered ? ' (' + tx('filtered') + ')' : '') + ' x ' + txn(this.ncols, '{n} col', '{n} cols'); }
 
   status() {
     if (!this.opts.onStatus) return;
@@ -491,8 +492,8 @@ class CsvGrid {
     if (cells > 1 && cells <= 200000) {
       let n = 0, sum = 0;
       for (let i = r0; i <= r1; i++) for (let c = c0; c <= c1; c++) { const x = this.numAt(this.view[i], c); if (!isNaN(x)) { n++; sum += x; } }
-      t += ' | ' + cells + ' cells';
-      if (n) t += ', sum ' + +sum.toFixed(10) + ', avg ' + +(sum / n).toFixed(6);
+      t += ' | ' + txn(cells, '{n} cell', '{n} cells');
+      if (n) t += ', ' + tx('sum') + ' ' + +sum.toFixed(10) + ', ' + tx('avg') + ' ' + +(sum / n).toFixed(6);
     }
     this.opts.onStatus(t);
   }
@@ -731,7 +732,7 @@ class CsvGrid {
     } else {
       let need = r0 + data.length - this.view.length;
       if (need > 0) {
-        if (this.filtered) { toast('clear the filters to paste past the last row', 'warn'); return; }
+        if (this.filtered) { toast(tx('clear the filters to paste past the last row'), 'warn'); return; }
         const add = [];
         for (let i = 0; i < need; i++) add.push([]);
         this.rows.push(...add);   // part of the same undo step: undoing leaves empty rows, which are not saved
@@ -818,17 +819,17 @@ class CsvGrid {
     const done = fn => () => { close(); fn(); };
     const mi = (text, fn, off) => h('button', { class: 'mi', text, disabled: !!off, onclick: done(fn) });
     const items = [];
-    if (!this.ro) items.push(mi('sort ascending', () => this.sortBy(c, false, d)), mi('sort descending', () => this.sortBy(c, true, d)));
+    if (!this.ro) items.push(mi(tx('sort ascending'), () => this.sortBy(c, false, d)), mi(tx('sort descending'), () => this.sortBy(c, true, d)));
     if (d !== undefined) {
       const v = this.cellText(d, c), q = v === '' ? '(empty)' : '"' + (v.length > 24 ? v.slice(0, 23) + '…' : v) + '"';
-      items.push(mi('only ' + q, () => this.keepValues(c, all, w => w === v)), mi('not ' + q, () => this.keepValues(c, all, (w, on) => on && w !== v)));
+      items.push(mi(tx('only {v}', { v: q }), () => this.keepValues(c, all, w => w === v)), mi(tx('not {v}', { v: q }), () => this.keepValues(c, all, (w, on) => on && w !== v)));
     }
-    items.push(mi('by condition…', () => this.condDialog(c)), mi('clear this filter', () => this.setColf(c, null), !f));
-    if (this.filter || this.colf.size > (f ? 1 : 0)) items.push(mi('clear all filters', () => this.clearFilters()));
+    items.push(mi(tx('by condition…'), () => this.condDialog(c)), mi(tx('clear this filter'), () => this.setColf(c, null), !f));
+    if (this.filter || this.colf.size > (f ? 1 : 0)) items.push(mi(tx('clear all filters'), () => this.clearFilters()));
 
-    const search = h('input', { type: 'search', placeholder: 'search values', spellcheck: false });
+    const search = h('input', { type: 'search', placeholder: tx('search values'), spellcheck: false });
     const box = h('div', { class: 'af-list' });
-    const okB = h('button', { class: 'primary', text: 'ok' });
+    const okB = h('button', { class: 'primary', text: tx('ok') });
     const sync = () => {
       for (const [cb, es] of groups) {
         const n = es.reduce((a, e) => a + (st.get(e.v) ? 1 : 0), 0);
@@ -850,11 +851,11 @@ class CsvGrid {
       const listed = new Set(was.concat(now)), others = hits.filter(e => !listed.has(e));
       groups = [];
       add(clear(box), [
-        hits.length ? row(hits, '(select all)', 'grp') : h('div', { class: 'sub', text: 'nothing found' }),
-        was.length ? h('div', { class: 'sub', text: 'hidden now' }) : null,
+        hits.length ? row(hits, tx('(select all)'), 'grp') : h('div', { class: 'sub', text: tx('nothing found') }),
+        was.length ? h('div', { class: 'sub', text: tx('hidden now') }) : null,
         was.map(e => row([e], label(e.v))),
-        others.length ? row(others, 'all ' + others.length + ' others' + (s ? ' found' : ''), 'grp') : null,
-        was.length && now.length ? h('div', { class: 'sub', text: 'on show' }) : null,
+        others.length ? row(others, s ? tx('all {n} others found', { n: others.length }) : tx('all {n} others', { n: others.length }), 'grp') : null,
+        was.length && now.length ? h('div', { class: 'sub', text: tx('on show') }) : null,
         now.map(e => row([e], label(e.v)))]);
       box.scrollTop = 0;
       sync();
@@ -868,9 +869,9 @@ class CsvGrid {
     search.addEventListener('keydown', e => { if (e.key === 'Enter' && !okB.disabled) { e.preventDefault(); done(apply)(); } });
     const win = h('div', { class: 'win af-pop' },
       h('div', { class: 'titlebar' }, h('span', { class: 'grip', text: '::' }), h('span', { class: 'af-t', text: this.colTitle(c) }), h('span', { class: 'spacer' }),
-        h('button', { class: 'dlg-x', text: 'x', title: 'close (esc)', onclick: () => close() })),
+        h('button', { class: 'dlg-x', text: 'x', title: tx('close (esc)'), onclick: () => close() })),
       h('div', { class: 'body' }, h('div', { class: 'af-menu' }, items), search, box),
-      h('div', { class: 'dlg-buttons' }, h('button', { text: 'cancel', onclick: () => close() }), okB));
+      h('div', { class: 'dlg-buttons' }, h('button', { text: tx('cancel'), onclick: () => close() }), okB));
     draw();
     this.pop = win;
     close = popup(x, y, win, () => { this.pop = null; this.scroll.focus(); });
@@ -884,21 +885,21 @@ class CsvGrid {
       [':', 'contains'], ['!:', 'does not contain'], ['^', 'begins with'], ['!^', 'does not begin with'], ['$', 'ends with'], ['!$', 'does not end with'],
       ['empty', 'is empty'], ['full', 'is not empty'], ['top', 'largest (how many)'], ['bottom', 'smallest (how many)']];
     const line = (k, none) => {
-      const op = h('select', {}, none ? h('option', { value: '', text: '(none)' }) : null, OPS.map(([v, t]) => h('option', { value: v, text: t })));
+      const op = h('select', {}, none ? h('option', { value: '', text: tx('(none)') }) : null, OPS.map(([v, t]) => h('option', { value: v, text: tx(t) })));
       const x = h('input', { type: 'text', list: 'af-values', spellcheck: false, value: k ? k.x : '' });
       op.value = k ? k.op : '';
-      const upd = () => { x.hidden = ['', 'empty', 'full'].includes(op.value); x.placeholder = op.value === 'top' || op.value === 'bottom' ? '10' : 'value'; };
+      const upd = () => { x.hidden = ['', 'empty', 'full'].includes(op.value); x.placeholder = op.value === 'top' || op.value === 'bottom' ? '10' : tx('value'); };
       op.addEventListener('change', upd);
       upd();
       return { op, x, el: h('div', { class: 'af-cond' }, op, x) };
     };
     const a = line(was[0]), b = line(was[1], true);
-    const join = h('select', { class: 'af-join' }, h('option', { value: 'and', text: 'and' }), h('option', { value: 'or', text: 'or' }));
+    const join = h('select', { class: 'af-join' }, h('option', { value: 'and', text: tx('and') }), h('option', { value: 'or', text: tx('or') }));
     join.value = f && f.or ? 'or' : 'and';
     const dl = h('datalist', { id: 'af-values' }, this.colValues(c).list.slice(0, 500).map(e => h('option', { value: e.v })));
     const ok = await dialog({
-      title: 'filter ' + this.colTitle(c), body: [h('span', { class: 'lbl', text: 'rows where the column' }), a.el, join, b.el, dl],
-      buttons: [{ label: 'cancel', value: null }, { label: 'ok', primary: true, value: true }],
+      title: tx('filter {col}', { col: this.colTitle(c) }), body: [h('span', { class: 'lbl', text: tx('rows where the column') }), a.el, join, b.el, dl],
+      buttons: [{ label: tx('cancel'), value: null }, { label: tx('ok'), primary: true, value: true }],
     });
     if (!ok) return;
     this.setColf(c, { cond: [a, b].filter(l => l.op.value).map(l => ({ op: l.op.value, x: l.x.value.trim() })), or: join.value === 'or' });

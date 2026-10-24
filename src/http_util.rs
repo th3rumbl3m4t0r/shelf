@@ -117,7 +117,13 @@ pub async fn serve(
     if inm.is_some_and(|v| v.split(',').any(|t| t.trim() == etag || t.trim() == "*")) {
         return b.status(StatusCode::NOT_MODIFIED).body(Body::empty()).unwrap();
     }
-    let if_range_ok = req.get(header::IF_RANGE).and_then(|v| v.to_str().ok()).is_none_or(|v| v == etag);
+    // A cache asking for part of its copy, with a validator that did not match
+    // above, gets the whole file: its copy is outdated. Chromium asks for its
+    // copy's length this way, and would show (and hand an editor) the new
+    // file cut at the old length. If-Modified-Since never gives a 304 here,
+    // its seconds miss a second save within the same second.
+    let outdated = inm.is_some() || req.contains_key(header::IF_MODIFIED_SINCE);
+    let if_range_ok = !outdated && req.get(header::IF_RANGE).and_then(|v| v.to_str().ok()).is_none_or(|v| v == etag);
     let range = req
         .get(header::RANGE)
         .and_then(|v| v.to_str().ok())
@@ -163,6 +169,33 @@ mod tests {
         assert_eq!(parse_range("bytes=10-", 10), Some(Err(())));
         assert_eq!(parse_range("bytes=0-1,4-5", 10), None);
         assert_eq!(parse_range("items=0-1", 10), None);
+    }
+
+    /// What a GET of a 22-byte file answers to `headers`: status, Content-Range, body length.
+    async fn get(headers: &[(header::HeaderName, &str)]) -> (StatusCode, Option<String>, usize) {
+        let e = Entry { name: "n.md".into(), is_dir: false, size: 22, mtime: 1_800_000_000, nanos: 7 };
+        let mut req = HeaderMap::new();
+        for (k, v) in headers {
+            req.insert(k, v.parse().unwrap());
+        }
+        let r = serve(e, Box::new(std::io::Cursor::new(vec![b'x'; 22])), &req, "n.md", false, false, None).await;
+        let range = r.headers().get(header::CONTENT_RANGE).map(|v| v.to_str().unwrap().to_string());
+        let status = r.status();
+        let body = axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap();
+        (status, range, body.len())
+    }
+
+    #[tokio::test]
+    async fn an_outdated_copy_gets_the_whole_file() {
+        let now = "\"16-6b49d200-7\"";
+        assert_eq!(get(&[(header::RANGE, "bytes=0-19")]).await, (StatusCode::PARTIAL_CONTENT, Some("bytes 0-19/22".into()), 20));
+        assert_eq!(get(&[(header::RANGE, "bytes=0-19"), (header::IF_NONE_MATCH, now)]).await.0, StatusCode::NOT_MODIFIED);
+        // Chromium revalidating the first 20 bytes it kept, of a file that has grown since
+        let old = [(header::RANGE, "bytes=0-19"), (header::IF_NONE_MATCH, "\"14-6b49d1f0-3\""), (header::IF_MODIFIED_SINCE, "Fri, 15 Jan 2027 08:00:00 GMT")];
+        assert_eq!(get(&old).await, (StatusCode::OK, None, 22));
+        assert_eq!(get(&[(header::RANGE, "bytes=0-19"), (header::IF_MODIFIED_SINCE, "Fri, 15 Jan 2027 08:00:00 GMT")]).await, (StatusCode::OK, None, 22));
+        assert_eq!(get(&[(header::RANGE, "bytes=0-19"), (header::IF_RANGE, now)]).await.0, StatusCode::PARTIAL_CONTENT);
+        assert_eq!(get(&[(header::RANGE, "bytes=0-19"), (header::IF_RANGE, "\"14-6b49d1f0-3\"")]).await.0, StatusCode::OK);
     }
 
     #[test]

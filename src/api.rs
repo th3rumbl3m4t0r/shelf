@@ -28,8 +28,8 @@ use crate::{
     edge::{self, Remote},
     error::{AppError, Res},
     files::{self, Target},
-    http_util,
-    vfs::{Entry, FsError, RelPath},
+    http_util, quota,
+    vfs::{ByteStream, Entry, FsError, RelPath},
     App,
 };
 
@@ -253,16 +253,23 @@ async fn upload(
     if header_str(&headers, header::IF_NONE_MATCH) == Some("*") && cur.is_some() {
         return Err(precondition("the file exists already (If-None-Match: *)"));
     }
+    let w = quota::start(&app, t.owner, t.mount, cur.as_ref().map_or(0, |e| e.size), quota::length(&headers)).await?;
     if q.mkdirs.is_some() {
         if let Some(parent) = t.path.parent() {
             files::mkdirs(t.backend.as_ref(), &t.root, &parent).await?;
         }
     }
-    let stream = body.into_data_stream().map_err(io::Error::other);
-    let mut e = match t.backend.write(&t.path, Box::pin(stream)).await {
+    let mut data: ByteStream = Box::pin(body.into_data_stream().map_err(io::Error::other));
+    if let Some(w) = &w {
+        data = w.wrap(data);
+    }
+    let mut e = match t.backend.write(&t.path, data).await {
         Err(FsError::NotFound) => return Err(AppError::new(StatusCode::NOT_FOUND, "no such folder (add ?mkdirs=1 to make it)")),
-        r => r?,
+        r => r.map_err(|e| quota::why(&w, e))?,
     };
+    if let Some(w) = w {
+        w.stored();
+    }
     if let Some(m) = q.mtime {
         t.backend.set_mtime(&t.path, m).await?;
         e = t.backend.stat(&t.path).await?;

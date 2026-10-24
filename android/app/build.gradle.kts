@@ -19,8 +19,8 @@ android {
         applicationId = "com.th3rumbl3.shelf"
         minSdk = 29
         targetSdk = 34
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
         // at home the app talks to shelf directly, elsewhere through the public edge:
         // -PshelfLanUrl=http://shelf.lan -PshelfPublicUrl=https://shelf.example.com (the LAN
         // host also goes in res/xml/network.xml, the one plain-http exception);

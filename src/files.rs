@@ -19,8 +19,8 @@ use crate::{
     auth::User,
     db, edge,
     error::{AppError, Res},
-    http_util, md, mounts, pictures,
-    vfs::{local::Local, Backend, FsError, RelPath},
+    http_util, md, mounts, pictures, quota,
+    vfs::{local::Local, Backend, ByteStream, FsError, RelPath},
     App,
 };
 
@@ -208,9 +208,15 @@ struct RawQ {
 }
 
 /// Room on the storage behind a location, for the places list: {size, used, free} in bytes,
-/// null when the storage cannot tell.
+/// null when the storage cannot tell. A home with a limit is as big as its limit.
 async fn space(State(app): State<Arc<App>>, user: User, Path(loc): Path<String>) -> Res<Json<Value>> {
     let t = resolve(&app, &user, &loc, "").await?;
+    if loc == "home" {
+        if let Some(limit) = quota::limit(&app, user.id)? {
+            let used = app.quotas.used(&app, user.id).await?;
+            return Ok(Json(json!({ "size": limit, "used": used, "free": limit.saturating_sub(used), "limit": true })));
+        }
+    }
     let s = t.backend.space(&t.root).await?;
     Ok(Json(s.map_or(Value::Null, |s| json!({ "size": s.size, "used": s.used, "free": s.free }))))
 }
@@ -311,13 +317,21 @@ async fn raw_put(
             return Err(AppError::new(StatusCode::PRECONDITION_FAILED, "the file changed since it was opened"));
         }
     }
+    let replaces = cur.as_ref().ok().filter(|e| !e.is_dir).map_or(0, |e| e.size);
+    let w = quota::start(&app, t.owner, t.mount, replaces, quota::length(&headers)).await?;
     if q.mkdirs.is_some() {
         if let Some(parent) = t.path.parent() {
             mkdirs(t.backend.as_ref(), &t.root, &parent).await?;
         }
     }
-    let stream = body.into_data_stream().map_err(io::Error::other);
-    let e = t.backend.write(&t.path, Box::pin(stream)).await?;
+    let mut data: ByteStream = Box::pin(body.into_data_stream().map_err(io::Error::other));
+    if let Some(w) = &w {
+        data = w.wrap(data);
+    }
+    let e = t.backend.write(&t.path, data).await.map_err(|e| quota::why(&w, e))?;
+    if let Some(w) = w {
+        w.stored();
+    }
     app.sizes.touch(&store_id(t.owner, t.mount), &t.path);
     Ok(Json(e.json()))
 }
@@ -364,6 +378,9 @@ pub async fn remove_item(app: &App, t: &Target, path: &RelPath) -> Res<()> {
     }
     t.backend.remove(path).await?;
     app.sizes.touch(&store_id(t.owner, t.mount), path);
+    if t.mount.is_none() {
+        app.quotas.forget(t.owner);
+    }
     let s = path.to_string();
     app.db.with(|c| db::unshare(c, t.owner, t.mount, &s))?;
     Ok(())

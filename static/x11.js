@@ -24,14 +24,29 @@
     try { localStorage.setItem(KEY, JSON.stringify(cur)); } catch (e) {}
   }
 
+  // a page with its own words for these (shelf's i18n.js) gives a global tx()
+  function tr(s) { return typeof window.tx === 'function' ? window.tx(s) : s; }
+
+  function label(el) {
+    var b = el.querySelector('.x11-mode'), l = el.querySelector('.lbl'), c = el.querySelector('.x11-accent');
+    if (b) { b.textContent = tr(cur.theme); b.title = tr('toggle night / day'); }
+    if (l) l.textContent = tr('accent');
+    if (c) c.title = tr('accent colour (shared by all pages on this origin)');
+  }
+
+  function relabel() {
+    var els = document.querySelectorAll('[data-x11-controls]');
+    for (var i = 0; i < els.length; i++) label(els[i]);
+  }
+
   function apply() {
     root.classList.toggle('theme-night', cur.theme === 'night');
     root.classList.toggle('theme-day', cur.theme === 'day');
     root.style.setProperty('--accent', cur.accent);
     var els = document.querySelectorAll('[data-x11-controls]');
     for (var i = 0; i < els.length; i++) {
-      var b = els[i].querySelector('.x11-mode'), c = els[i].querySelector('.x11-accent');
-      if (b) b.textContent = cur.theme;
+      var c = els[i].querySelector('.x11-accent');
+      label(els[i]);
       if (c && c.value !== cur.accent) c.value = cur.accent;
     }
     try { document.dispatchEvent(new CustomEvent('x11-theme', { detail: { theme: cur.theme, accent: cur.accent } })); } catch (e) {}
@@ -49,9 +64,10 @@
     var id = 'x11-accent-' + (++seq);
     el.classList.add('x11-controls');
     el.innerHTML =
-      '<button type="button" class="x11-mode" title="toggle night / day">' + cur.theme + '</button>' +
-      '<label class="lbl" for="' + id + '">accent</label>' +
-      '<input type="color" class="x11-accent" id="' + id + '" value="' + cur.accent + '" title="accent colour (shared by all pages on this origin)">';
+      '<button type="button" class="x11-mode"></button>' +
+      '<label class="lbl" for="' + id + '"></label>' +
+      '<input type="color" class="x11-accent" id="' + id + '" value="' + cur.accent + '">';
+    label(el);
     el.querySelector('.x11-mode').addEventListener('click', function () {
       set({ theme: cur.theme === 'night' ? 'day' : 'night' });
     });
@@ -107,6 +123,7 @@
     set: set,
     reset: function () { set(DEFAULT); },
     mount: mount,
+    relabel: relabel,
     NAV: NAV,
     DEFAULT: DEFAULT
   };

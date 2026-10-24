@@ -292,7 +292,7 @@ object Sync {
         for ((d, r) in dirs) walk(ctx, tree, d, r, out, stop)
     }
 
-    private fun enc(path: String) = path.split('/').filter { it.isNotEmpty() }.joinToString("/") { Uri.encode(it) }
+    fun enc(path: String) = path.split('/').filter { it.isNotEmpty() }.joinToString("/") { Uri.encode(it) }
 
     /** a folder on shelf by name, from a cache for the run; empty when it is not there */
     private fun ls(base: String, token: String, dirs: HashMap<String, Map<String, JSONObject>>, dir: String) =

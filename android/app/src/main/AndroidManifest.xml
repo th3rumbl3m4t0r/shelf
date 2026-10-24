@@ -25,6 +25,21 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- share → shelf from any app: put the files on shelf, copy or mail a public link -->
+        <activity
+            android:name=".ShareActivity"
+            android:exported="true"
+            android:label="shelf"
+            android:theme="@android:style/Theme.DeviceDefault.Dialog.NoActionBar"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+        </activity>
         <service
             android:name=".SyncJob"
             android:exported="false"

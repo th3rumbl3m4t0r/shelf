@@ -140,6 +140,38 @@ CREATE TABLE api_keys (
 CREATE INDEX api_keys_owner ON api_keys(owner_id);
 ";
 
+const SCHEMA_V9: &str = "
+-- programs that let people log in with their shelf account (oidc.rs): name is
+-- the client_id; only the secret's hash is kept, NULL for a public client
+CREATE TABLE oidc_clients (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  secret_hash TEXT,
+  redirect_uris TEXT NOT NULL,
+  users TEXT NOT NULL DEFAULT '',
+  created INTEGER NOT NULL,
+  last_used INTEGER
+);
+-- their access and refresh tokens, by hash; a grant is one login and what
+-- was refreshed from it
+CREATE TABLE oidc_tokens (
+  token_hash TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  client_id INTEGER NOT NULL REFERENCES oidc_clients(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  scope TEXT NOT NULL,
+  grant_id TEXT NOT NULL,
+  auth_time INTEGER NOT NULL,
+  created INTEGER NOT NULL,
+  expires INTEGER NOT NULL
+) WITHOUT ROWID;
+CREATE INDEX oidc_tokens_grant ON oidc_tokens(grant_id);
+CREATE INDEX oidc_tokens_user ON oidc_tokens(user_id);
+-- the subject in tokens: random, so never reused as ids and names can be
+ALTER TABLE users ADD COLUMN sub TEXT;
+CREATE UNIQUE INDEX users_sub ON users(sub);
+";
+
 pub fn get_setting(db: &Db, key: &str) -> Res<Option<String>> {
     db.opt(|c| c.query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| r.get(0)))
 }
@@ -178,6 +210,17 @@ impl Db {
         }
         if v < 6 {
             c.execute_batch(&format!("BEGIN; {SCHEMA_V6} PRAGMA user_version=6; COMMIT;"))?;
+        }
+        if v < 7 {
+            // the UI language each user picked (users::LANGS); empty: the browser's
+            c.execute_batch("BEGIN; ALTER TABLE users ADD COLUMN lang TEXT NOT NULL DEFAULT ''; PRAGMA user_version=7; COMMIT;")?;
+        }
+        if v < 8 {
+            // room in the home, bytes (quota.rs); NULL: no limit
+            c.execute_batch("BEGIN; ALTER TABLE users ADD COLUMN quota INTEGER; PRAGMA user_version=8; COMMIT;")?;
+        }
+        if v < 9 {
+            c.execute_batch(&format!("BEGIN; {SCHEMA_V9} PRAGMA user_version=9; COMMIT;"))?;
         }
         Ok(Db(Mutex::new(c)))
     }

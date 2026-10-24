@@ -12,12 +12,15 @@ mod files;
 mod http_util;
 mod md;
 mod mounts;
+mod oidc;
 mod pictures;
 mod public;
+mod quota;
 mod shares;
 mod sizes;
 mod sync;
 mod users;
+mod versions;
 mod vfs;
 
 use std::{
@@ -53,6 +56,8 @@ pub struct Config {
     /// UPS status page (JSON); the backup runs when it leaves line power and
     /// prunes only on line power
     pub ups_url: Option<String>,
+    /// `http://shelf.lan`: sign-in for other programs (oidc.rs) is on, as this issuer
+    pub oidc_issuer: Option<String>,
 }
 
 impl Config {
@@ -68,6 +73,7 @@ impl Config {
             secure_cookie: var("SHELF_SECURE_COOKIE").is_some_and(|v| v == "1" || v == "true"),
             edge_bind: var("SHELF_EDGE_BIND"),
             ups_url: var("SHELF_UPS_URL"),
+            oidc_issuer: var("SHELF_OIDC_ISSUER").map(|u| u.trim().trim_end_matches('/').to_string()),
             host,
         }
     }
@@ -85,6 +91,9 @@ pub struct App {
     pub asns: edge::Asns,
     pub pics: pictures::Index,
     pub sizes: sizes::Sizes,
+    pub quotas: quota::Quotas,
+    pub snaps: versions::Snapshots,
+    pub oidc: oidc::Oidc,
 }
 
 impl App {
@@ -126,6 +135,9 @@ fn open_app(cfg: Config) -> anyhow::Result<App> {
         asns: Default::default(),
         pics: pictures::Index::new(),
         sizes: Default::default(),
+        quotas: Default::default(),
+        snaps: Default::default(),
+        oidc: Default::default(),
         cfg,
     })
 }
@@ -155,6 +167,7 @@ async fn housekeeping(app: Arc<App>) {
     for n in 0u64.. {
         tick.tick().await;
         app.sftp.reap(Duration::from_secs(600));
+        app.snaps.reap(Duration::from_secs(600));
         if n % 10 == 0 {
             pictures::kick(&app, Duration::ZERO);
         }
@@ -168,7 +181,8 @@ async fn housekeeping(app: Arc<App>) {
             .with(|c| {
                 c.execute("DELETE FROM sessions WHERE expires < ?1", [t])?;
                 c.execute("DELETE FROM links WHERE expires IS NOT NULL AND expires < ?1", [t])?;
-                c.execute("DELETE FROM api_keys WHERE expires IS NOT NULL AND expires < ?1", [t])
+                c.execute("DELETE FROM api_keys WHERE expires IS NOT NULL AND expires < ?1", [t])?;
+                c.execute("DELETE FROM oidc_tokens WHERE expires < ?1", [t])
             })
             .ok();
         // uploads that died half way
@@ -195,6 +209,7 @@ async fn shutdown(stop: tokio_util::sync::CancellationToken) {
 fn serve(app: App) -> anyhow::Result<()> {
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
     app.pics.load(&app.db).map_err(|e| anyhow::anyhow!(e.msg))?;
+    oidc::ready(&app)?;
     rt.block_on(async move {
         let app = Arc::new(app);
         let router = Router::new()
@@ -203,9 +218,11 @@ fn serve(app: App) -> anyhow::Result<()> {
             .merge(shares::routes())
             .merge(mounts::routes())
             .merge(backup::routes())
+            .merge(versions::routes())
             .merge(pictures::routes())
             .merge(sync::routes())
             .merge(api::routes())
+            .merge(oidc::routes())
             .merge(public::routes())
             .merge(assets::routes())
             .fallback(assets::fallback)
@@ -255,6 +272,10 @@ fn main() -> anyhow::Result<()> {
             check_owner(&cfg.data)?;
             backup::cli(open_app(cfg)?, &args[1..])
         }
+        Some("oidc") => {
+            check_owner(&cfg.data)?;
+            oidc::cli(&open_app(cfg)?, &args[1..])
+        }
         Some("edge") => {
             check_owner(&cfg.data)?;
             edge::cli(&cfg.data, &args[1..])
@@ -263,6 +284,6 @@ fn main() -> anyhow::Result<()> {
             println!("shelf {}", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
-        _ => anyhow::bail!("usage: shelf [serve] | user add|passwd|remote|list … | backup set|run|show … | edge init|show | version"),
+        _ => anyhow::bail!("usage: shelf [serve] | user add|passwd|remote|list … | backup set|run|show … | oidc add|list|secret|remove … | edge init|show | version"),
     }
 }

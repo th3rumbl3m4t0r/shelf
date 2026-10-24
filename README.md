@@ -16,6 +16,8 @@ included in the binary.
 - public links to a file or folder, optional expiry
 - external storage over SFTP, per user (password or key)
 - nightly backup to an SFTP server; the backup is enough to rebuild the server
+- earlier versions of files and folders in the home, from the backup's
+  snapshots: look at them, and put back changed or deleted files
 - metaplaces: "pictures", every picture a user can see in one grid by date,
   with a slideshow through all of them
 - use from outside through a public edge, per account and only from listed
@@ -23,6 +25,18 @@ included in the binary.
 - API keys: a program gets one folder, read-only or read-write, and can list,
   download, upload, move and delete there (share → API keys; see
   [docs/API.md](docs/API.md))
+- android app: shelf in a WebView, one-way folder sync from the phone, and
+  share → shelf from any app (upload, then copy or mail a public link)
+- sign-in for other programs on the network (OpenID Connect): they let people
+  log in with their shelf account, each program only the accounts it is
+  allowed (admin → sign-in for other programs; see [docs/OIDC.md](docs/OIDC.md))
+- storage limits per account (admin → users → limit): the home of a user
+  with a limit shows used/limit instead of the disk's figures, and writes
+  that would go past it are refused
+- the UI in English, Czech, Slovak, Hungarian and French: a picker in the
+  title bar (EN CZ SK HU FR). Logged in, the pick is the account's default
+  and follows it to other browsers; before that, and on public links, the
+  browser's last pick or its own language
 
 ## Build and run
 
@@ -37,7 +51,8 @@ In /opt/shelf (the unit expects the binary there), as root:
         target/release/shelf user add admin --admin --random
 
 `user add --random` prints the generated password. You can also run
-`shelf user passwd <name> [--random]`, `shelf user list` and `shelf backup …`. Everything
+`shelf user passwd <name> [--random]`, `shelf user list`, `shelf backup …` and
+`shelf oidc …`. Everything
 else is done in the web UI (admin → users).
 
 Static files are included in the binary, so a change under `static/` needs a
@@ -58,6 +73,7 @@ their program before each start, since a rebuilt file comes out unlabelled.
 | `SHELF_SECURE_COOKIE` | `1` when served over https (adds `Secure` to the cookie) |
 | `SHELF_HOST` | name shown in the title bar |
 | `SHELF_UPS_URL` | UPS status page (JSON) for the backup, see below |
+| `SHELF_OIDC_ISSUER` | the address shelf is reached at, without a path (`http://shelf.lan`): sign-in for other programs is on, see below |
 
 No secrets go in this file. `SHELF_DATA/secret.key` is generated on first
 start. It encrypts the SFTP passwords and keys stored in the database.
@@ -73,18 +89,23 @@ start. It encrypts the SFTP passwords and keys stored in the database.
     src/public.rs      /s/<token>… (no login)
     src/mounts.rs      SFTP mounts, credentials sealed with secret.key
     src/backup.rs      nightly backup
+    src/versions.rs    earlier versions: the backup's snapshots, looked through and restored
     src/sizes.rs       folder sizes, kept two minutes
+    src/quota.rs       storage limits: what a home holds, writes counted against the limit
     src/pictures.rs    pictures metaplace: index, dates, thumbnails
     src/edge.rs        the public edge's listener; outside networks, AS lookups
     src/sync.rs        one-way sync from phones: pairing, device tokens, uploads
     src/api.rs         API keys and the /api/v1 folder API (docs/API.md)
+    src/oidc.rs        OpenID Connect provider: sign-in for other programs (docs/OIDC.md)
     src/vfs/           Backend trait; local disk and SFTP implementations
     src/md.rs          Markdown to sanitised HTML
     static/            x11.css/x11.js (shared theme), app, viewer, csv, sheet,
-                       xlsx (engine, xlsx in and out), ods, rtf
+                       xlsx (engine, xlsx in and out), ods, rtf; i18n.js has
+                       every UI text in CZ, SK, HU, FR, keyed by the English
     android/           the Android app: WebView and folder sync; serve.py and
                        publish.sh for the APK download on port 88
     docs/API.md        the folder API, for people writing programs against it
+    docs/OIDC.md       sign-in with shelf, for people setting up a program
 
 Data folder:
 
@@ -120,6 +141,12 @@ empty segments and control characters.
   one folder (paths go through `RelPath`, joined below it), follows the folder
   when it moves, and ends with it, at expiry, on removal, or when the owner is
   disabled. Through the edge, the owner's outside networks apply.
+- OpenID Connect answers only on the LAN listener, never through the edge.
+  Programs and their redirect URIs are registered by an admin and matched
+  exactly; codes work once within 60 s and need PKCE from public clients.
+  Client secrets and tokens are 256-bit random, kept as sha256; the signing
+  key is sealed with `secret.key`. A changed password, a disabled account or a
+  removed program ends the tokens that came with it.
 
 ## Spreadsheets (ods; xlsx, xlsm)
 
@@ -171,6 +198,29 @@ other sheets and parts are copied through byte for byte.
   replaces what is shown (checked every 5 s while the tab is visible).
 - No zip64, no encrypted or password-protected files, 32 MB at most. `.xls`
   is not read. Fraction formats (`# ?/?`) are not supported.
+
+## Storage limits (admin → users → limit)
+
+An account can get a limit for its home, typed like `50G`, `500M` or `1.5T`
+(binary units, as sizes are shown; empty removes it). `shelf user limit <name>
+[size]` does the same from the shell. Accounts without one are as before.
+
+- The home's entry in places shows used/limit (`12G/50G`) instead of the
+  disk, bold from 80%. Admin → users shows each limited home as used of limit.
+- What counts is everything in the home, added up as the folder sizes in the
+  file list are (a hard-linked file counts once per name). Storage over SFTP is
+  the user's own and not counted. The sum is redone every two minutes; what
+  shelf writes in between is added as it goes.
+- Every write into the home is counted as its bytes arrive: uploads, editors,
+  the phone sync, API keys, and other users writing into a folder shared with
+  them (it is the owner's room). One that would grow the home past the limit is
+  refused with 507 and nothing of it is kept; uploads side by side cannot
+  overshoot together. A write that does not grow the home, like saving an
+  edited file, always goes through, even over the limit (a limit set below
+  what the home holds already leaves the files alone).
+- A refused upload is still read to its end, so the client gets the answer
+  instead of a cut connection. The web page asks first for files over 32 MB and
+  does not send what cannot fit.
 
 ## Pictures (places → metaplaces → pictures)
 
@@ -244,6 +294,27 @@ release. Set your addresses with `-PshelfLanUrl=http://…` and
 `app/src/main/res/xml/network.xml`); `-PshelfUrl=http://…` builds one that
 talks to a test shelf.
 
+## Share to shelf (android app)
+
+The app is a share target for any file (`ShareActivity`): share → shelf in
+the gallery, the files app or anywhere else opens a small window with the
+files, the folder in your home they go to (`Shared` unless changed; the last
+one is remembered) and when the link expires (empty: never).
+
+- `copy link` / `email`: the files are put on shelf, a public link is made
+  and either copied to the clipboard or put in a new mail. The mail app
+  (`com.th3rumbl3.mail`, jmailAPK) gets a `mailto:` with the file
+  name as subject and the link as text; without it, any mail app that takes
+  `mailto:` does.
+- One file keeps its name (`name (2).ext` when it is taken) and the link is to
+  the file. Several get a new folder named by the time
+  (`2026-10-03 19.45.12`) and the link is to that folder. Shared text without
+  a file becomes a `.txt`.
+- It uses the app's login cookie, at home or through the public edge like the
+  app itself, and plain `PUT /api/raw/home/…?mode=new&mkdirs=1` and
+  `POST /api/links`. Without a login there it offers to open the app to sign
+  in.
+
 ## Nightly backup (admin → nightly backup)
 
 At the set time, the backup writes a complete snapshot to an SFTP server:
@@ -287,6 +358,69 @@ public links, file checksums and the sealed SFTP credentials all came back.
 
 Not included: contents of users' SFTP mounts (they live on their own servers).
 
+## Earlier versions (versions)
+
+The snapshots of the nightly backup are also there for users: "versions" in
+the file list (for the selected file or folder, or with nothing selected for
+the folder itself) and in the viewer. Only for the home: SFTP storage is not
+backed up, and a shared path may have held other things of its owner's before
+it was shared.
+
+- A file: what each snapshot has of it, once per content (sha256), newest
+  first, with its size and modification time, and which backups have it. The
+  one the file is now is marked "as now".
+- A folder: the folder as a chosen backup has it, to look through all the way
+  up to the home. Entries are marked "deleted since", "changed since" or "as
+  now"; this is how a deleted file comes back.
+- open shows a version in the viewer (`/version/<snapshot>/home/<path>`);
+  download downloads it.
+- restore puts a file or folder back in its place when that is free. When
+  something is there, it goes next to it as `name (2026-10-12).ext` (then
+  ` (2)`…), or, for a file over a file, in its place if asked (the dialog says
+  when the file as it is now is in no backup). The modification time comes
+  back too. Every file must match the sha256 in the manifest, or nothing of it
+  is kept; restores count against the storage limit. A folder restore that
+  stops half way keeps what it had put back.
+
+The snapshots list comes from the target folder, which they are read from over
+one SFTP connection kept open for ten minutes; `manifest.json` (which files a
+snapshot has) is read once per snapshot and kept in memory. The three kept
+snapshots mean at most three versions: the last night's, one up to a week
+older and one up to a month older. `/api/versions/home/<path>`,
+`/api/snap/<snapshot>/ls|raw/home/<path>` and `POST /api/restore` are the
+calls behind it.
+
+## Sign-in for other programs (OpenID Connect)
+
+With `SHELF_OIDC_ISSUER` set, shelf is an OpenID Connect provider: programs
+on the network (the services on another host, say) send people to shelf to log
+in and get back who they are. docs/OIDC.md has what a program needs and an
+example with oauth2-proxy in front of nginx.
+
+- Admin → sign-in for other programs lists the programs, adds one (its name
+  is its `client_id`; the secret is shown once), changes its redirect URIs and
+  who may log in (usernames; empty: everyone), makes a new secret and removes
+  one. `shelf oidc add <name> --redirect <uri> [--users a,b] [--public]`,
+  `list`, `secret <name>` and `remove <name>` do the same from the shell.
+- A program sends the browser to `/oidc/authorize`. Someone not logged in gets
+  the usual login page (with "to continue to <name>") and comes back to
+  finish; someone logged in goes straight back with a code. There is no
+  consent page: the programs are the admin's own. `prompt=login` and
+  `max_age` ask for a fresh login, `prompt=none` never shows one.
+- Only the authorization code flow, with PKCE S256 (required for public
+  clients: phone and browser apps without a secret). ID tokens are RS256
+  JWTs with `sub` (random per account, never reused), `preferred_username`
+  and `name` (scope `profile`). Access tokens last an hour, refresh tokens 30
+  days and are replaced on each use; both are opaque and kept as hashes in
+  `oidc_tokens`.
+- The signing key is made on the first start with the issuer set and kept in
+  `settings` (`oidc_key`), sealed with `secret.key`; the backup has it.
+  Codes and sign-ins waiting for their login are kept in memory only: a restart
+  in the middle of one means starting it again.
+- Not there: email addresses and groups, a logout endpoint, dynamic client
+  registration, key rotation, and use through the edge (the issuer is the LAN
+  address).
+
 ## Later
 
 **Public front server / cache.** Public pages and files live only under
@@ -312,8 +446,8 @@ this instance.
 - phone sync the other way (shelf to phone), and folders on an SD card
   were not tried
 - zip download of folders
-- trash for deleted files (the backup snapshots are the safety net)
-- quotas
+- trash for deleted files (the backup snapshots are the safety net, see
+  earlier versions)
 
 ## License
 

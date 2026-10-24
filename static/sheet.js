@@ -60,24 +60,23 @@ class SheetGrid extends CsvGrid {
   }
 
   toolbar(b) {
-    this.bUndo = b('undo', 'undo (ctrl+z)', () => this.undo());
-    this.bRedo = b('redo', 'redo (ctrl+y)', () => this.redo());
+    this.bUndo = b(tx('undo'), tx('undo (ctrl+z)'), () => this.undo());
+    this.bRedo = b(tx('redo'), tx('redo (ctrl+y)'), () => this.redo());
     this.refEl = h('span', { class: 'sheet-ref' });
-    this.fx = h('input', { type: 'text', class: 'sheet-fx', spellcheck: false, readOnly: this.ro, placeholder: this.ro ? '' : 'value or =formula',
-      title: 'the cell as typed: enter stores it, esc goes back' });
+    this.fx = h('input', { type: 'text', class: 'sheet-fx', spellcheck: false, readOnly: this.ro, placeholder: this.ro ? '' : tx('value or =formula'),
+      title: tx('the cell as typed: enter stores it, esc goes back') });
     this.fx.addEventListener('focus', () => { this.commit(true); this.fxAt = { d: this.view[this.cur.r], c: this.cur.c }; });
     this.fx.addEventListener('keydown', e => {
       if (e.key === 'Enter') { e.preventDefault(); this.fxCommit(); this.scroll.focus(); this.move(this.cur.r + 1, this.cur.c); }
       else if (e.key === 'Escape') { e.preventDefault(); this.fxAt = null; this.scroll.focus(); this.render(); }
     });
     this.fx.addEventListener('blur', () => this.fxCommit());
-    this.sheetSel = h('select', { title: 'sheet' });
+    this.sheetSel = h('select', { title: tx('sheet') });
     this.sheetSel.addEventListener('change', () => { this.showSheet(this.book.sheets[+this.sheetSel.value]); this.scroll.focus(); });
     this.fillSheets();
-    const sortT = ' by the current column: the selected rows, or the rows around the cursor up to an empty one';
     return h('div', { class: 'toolbar csv-bar sheet-bar' },
       this.ro ? null : [this.bUndo, this.bRedo, h('span', { class: 'sep' }),
-        b('sort a-z', 'sort' + sortT, () => this.sort(this.cur.c, false)), b('sort z-a', 'sort descending' + sortT, () => this.sort(this.cur.c, true)), h('span', { class: 'sep' })],
+        b(tx('sort a-z'), tx('sort by the current column: the selected rows, or the rows around the cursor up to an empty one'), () => this.sort(this.cur.c, false)), b(tx('sort z-a'), tx('sort descending by the current column: the selected rows, or the rows around the cursor up to an empty one'), () => this.sort(this.cur.c, true)), h('span', { class: 'sep' })],
       this.headerBox(), this.filterBox(), h('span', { class: 'sep' }), this.refEl, this.fx, this.sheetSel);
   }
   fillSheets() {
@@ -125,7 +124,7 @@ class SheetGrid extends CsvGrid {
     this.refEl.textContent = CSV.colName(this.cur.c) + (d === undefined ? '' : d + 1);
     if (document.activeElement !== this.fx) this.fx.value = d === undefined ? '' : this.get(d, this.cur.c);
   }
-  statusHead() { return this.sh.name + (this.filtered ? ' | ' + this.view.length + ' rows shown' : ''); }
+  statusHead() { return this.sh.name + (this.filtered ? ' | ' + txn(this.view.length, '{n} row shown', '{n} rows shown') : ''); }
 
   /* edits land in the workbook; undo knows its sheet */
   setCells(list) {
@@ -146,7 +145,7 @@ class SheetGrid extends CsvGrid {
 
   // rows and columns inside a sheet would need every reference moved: not here
   insertRows(at, n) { if (at >= this.rows.length) super.insertRows(at, n); }
-  addRow() { toast('inserting rows is not supported in spreadsheets here', 'warn'); }
+  addRow() { toast(tx('inserting rows is not supported in spreadsheets here'), 'warn'); }
   deleteRows() {}
   insertCol() {}
   deleteCols() {}
@@ -159,7 +158,7 @@ class SheetGrid extends CsvGrid {
     const { r0, r1, c0, c1 } = this.range(), used = d => { const row = this.rows[d] || []; let n = row.length; while (n > 0 && !row[n - 1]) n--; return n; };
     let a = r0, b = r1;
     if (a === b) {
-      if (!used(this.view[a])) { toast('nothing to sort here', 'warn'); return; }
+      if (!used(this.view[a])) { toast(tx('nothing to sort here'), 'warn'); return; }
       while (a > 0 && used(this.view[a - 1])) a--;
       while (b < this.view.length - 1 && used(this.view[b + 1])) b++;
     }
@@ -274,6 +273,6 @@ class SheetGrid extends CsvGrid {
     this.scroll.scrollTop = top;
     this.scroll.scrollLeft = left;
     this.changed();
-    if (lost.length) toast('sheet ' + lost.join(', ') + ' is gone from the file: the changes there are lost', 'err');
+    if (lost.length) toast(tx('sheet {name} is gone from the file: the changes there are lost', { name: lost.join(', ') }), 'err');
   }
 }

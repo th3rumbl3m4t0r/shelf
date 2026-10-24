@@ -25,8 +25,8 @@ use crate::{
     db::now,
     edge::{self, Remote},
     error::{AppError, Res},
-    files,
-    vfs::{FsError, RelPath},
+    files, quota,
+    vfs::{ByteStream, FsError, RelPath},
     App,
 };
 
@@ -179,9 +179,17 @@ async fn upload(
         }
         (Err(e), _) => return Err(e.into()),
     }
+    let replaces = b.stat(&path).await.map_or(0, |e| e.size);
+    let w = quota::start(&app, dev.user.id, None, replaces, quota::length(&headers)).await?;
     files::mkdirs(b.as_ref(), &RelPath::root(), &parent).await?;
-    let stream = body.into_data_stream().map_err(io::Error::other);
-    let mut e = b.write(&path, Box::pin(stream)).await?;
+    let mut data: ByteStream = Box::pin(body.into_data_stream().map_err(io::Error::other));
+    if let Some(w) = &w {
+        data = w.wrap(data);
+    }
+    let mut e = b.write(&path, data).await.map_err(|e| quota::why(&w, e))?;
+    if let Some(w) = w {
+        w.stored();
+    }
     if let Some(t) = q.mtime {
         b.set_mtime(&path, t).await?;
         e = b.stat(&path).await?;

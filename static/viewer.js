@@ -12,9 +12,11 @@
 const TEXT_MAX = 4 << 20;
 const CSV_MAX = 32 << 20;
 
-/* the first `max` bytes as text; truncated when the file is longer */
+/* the first `max` bytes as text; truncated when the file is longer. Past the
+   browser's cache: Chromium keeps a range as a partial copy and later asks for
+   only that length, which cuts a file that has grown since */
 async function fetchText(url, max) {
-  const r = await fetch(url, { credentials: 'same-origin', headers: { range: 'bytes=0-' + (max - 1) } });
+  const r = await fetch(url, { credentials: 'same-origin', cache: 'no-store', headers: { range: 'bytes=0-' + (max - 1) } });
   if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
   const total = /\/(\d+)$/.exec(r.headers.get('content-range') || '');
   return { text: await r.text(), truncated: !!total && +total[1] > max, etag: r.headers.get('etag') };
@@ -31,13 +33,13 @@ function viewer(src) {
   if (kind === 'video' || kind === 'audio') {
     media = h(kind, { controls: true, preload: 'metadata', src: src.raw });
     media.addEventListener('error', () => {
-      el.appendChild(note('the browser cannot play this file (container or codec); download it instead'));
+      el.appendChild(note(tx('the browser cannot play this file (container or codec); download it instead')));
     });
     if (kind === 'video' && src.siblings) {
       // movie.mkv takes movie.vtt, movie.srt, movie.en.srt, movie.cs.vtt …
       const base = stem(src.name);
       src.siblings.filter(n => (extOf(n) === 'vtt' || extOf(n) === 'srt') && stem(n).startsWith(base)).forEach(n => {
-        const lang = stem(n).slice(base.length).replace(/^[.\-_ ]+/, '') || 'subtitles';
+        const lang = stem(n).slice(base.length).replace(/^[.\-_ ]+/, '') || tx('subtitles');
         const t = h('track', { kind: 'subtitles', label: lang, srclang: /^[a-z]{2,3}$/i.test(lang) ? lang : null });
         if (extOf(n) === 'vtt') t.src = src.rawOf(n);
         else {
@@ -52,50 +54,50 @@ function viewer(src) {
     }
     el.appendChild(media);
   } else if (kind === 'image') {
-    const img = h('img', { src: src.raw, alt: src.name, title: 'click: actual size / fit' });
+    const img = h('img', { src: src.raw, alt: src.name, title: tx('click: actual size / fit') });
     img.addEventListener('click', () => el.classList.toggle('actual'));
     el.appendChild(img);
   } else if (kind === 'pdf') {
     el.appendChild(h('iframe', { src: src.raw, title: src.name }));
   } else if (kind === 'md') {
-    const body = h('div', { class: 'md-body' }, note('rendering…'));
+    const body = h('div', { class: 'md-body' }, note(tx('rendering…')));
     el.appendChild(body);
-    src.md().then(html => { body.innerHTML = html; }, e => { clear(body).appendChild(note(e.message)); });
+    src.md().then(html => { body.innerHTML = html; }, e => { clear(body).appendChild(note(txErr(e.message))); });
   } else if (kind === 'csv' && typeof CsvGrid !== 'undefined') {
-    const host = h('div', { class: 'csv-host' }, note('loading…'));
+    const host = h('div', { class: 'csv-host' }, note(tx('loading…')));
     el.appendChild(host);
     fetchText(src.raw, CSV_MAX).then(r => {
-      if (r.truncated) { clear(host).appendChild(note('too big for the table view (over ' + fmtSize(CSV_MAX) + '); download it')); return; }
+      if (r.truncated) { clear(host).appendChild(note(tx('too big for the table view (over {size}); download it', { size: fmtSize(CSV_MAX) }))); return; }
       grid = new CsvGrid(host, r.text, { readonly: true, name: src.name });
-    }, e => { clear(host).appendChild(note(e.message)); });
+    }, e => { clear(host).appendChild(note(txErr(e.message))); });
   } else if (kind === 'sheet' && typeof SheetGrid !== 'undefined') {
-    const host = h('div', { class: 'csv-host' }, note('loading…'));
+    const host = h('div', { class: 'csv-host' }, note(tx('loading…')));
     el.appendChild(host);
     fetch(src.raw, { credentials: 'same-origin' })
       .then(r => {
         if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
-        if (+r.headers.get('content-length') > CSV_MAX) throw new Error('too big for the table view (over ' + fmtSize(CSV_MAX) + '); download it');
+        if (+r.headers.get('content-length') > CSV_MAX) throw new Error(tx('too big for the table view (over {size}); download it', { size: fmtSize(CSV_MAX) }));
         return r.arrayBuffer();
       })
       .then(b => SheetGrid.open(host, new Uint8Array(b), { readonly: true }))
-      .then(g => { grid = g; }, e => { clear(host).appendChild(note(e.message)); });
+      .then(g => { grid = g; }, e => { clear(host).appendChild(note(txErr(e.message))); });
   } else if (kind === 'rtf' && typeof RtfEditor !== 'undefined') {
-    const host = h('div', { class: 'rtf-view' }, note('loading…'));
+    const host = h('div', { class: 'rtf-view' }, note(tx('loading…')));
     el.appendChild(host);
     fetch(src.raw, { credentials: 'same-origin' })
       .then(r => { if (!r.ok) throw new Error(r.status + ' ' + r.statusText); return r.arrayBuffer(); })
-      .then(b => { rtf = new RtfEditor(host, new Uint8Array(b), { readonly: true }); }, e => { clear(host).appendChild(note(e.message)); });
+      .then(b => { rtf = new RtfEditor(host, new Uint8Array(b), { readonly: true }); }, e => { clear(host).appendChild(note(txErr(e.message))); });
   } else if (kind === 'text' || kind === 'csv' || kind === 'rtf') {
-    const pre = h('pre', { class: 'text-view' }, note('loading…'));
+    const pre = h('pre', { class: 'text-view' }, note(tx('loading…')));
     el.appendChild(pre);
-    fetch(src.raw, { credentials: 'same-origin', headers: { range: 'bytes=0-' + (TEXT_MAX - 1) } })
+    fetch(src.raw, { credentials: 'same-origin', cache: 'no-store', headers: { range: 'bytes=0-' + (TEXT_MAX - 1) } })
       .then(r => { if (!r.ok) throw new Error(r.status + ' ' + r.statusText); return r.text(); })
       .then(t => {
         pre.textContent = t;
-        if (t.length >= TEXT_MAX - 4) el.appendChild(note('only the first ' + fmtSize(TEXT_MAX) + ' are shown'));
-      }, e => { clear(pre).appendChild(note(e.message)); });
+        if (t.length >= TEXT_MAX - 4) el.appendChild(note(tx('only the first {size} are shown', { size: fmtSize(TEXT_MAX) })));
+      }, e => { clear(pre).appendChild(note(txErr(e.message))); });
   } else {
-    el.appendChild(note('no preview for this kind of file'));
+    el.appendChild(note(tx('no preview for this kind of file')));
   }
 
   // prev / next among files of the same kind

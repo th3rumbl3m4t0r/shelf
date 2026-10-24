@@ -238,6 +238,17 @@ impl Sftp {
         *self.conn.lock().await = None;
     }
 
+    /// Close the connection if it has not been used for `idle`; true if it was.
+    pub fn close_idle(&self, idle: Duration) -> bool {
+        if let Ok(mut g) = self.conn.try_lock() {
+            if g.as_ref().is_some_and(|c| c.used.lock().unwrap().elapsed() > idle) {
+                *g = None;
+                return true;
+            }
+        }
+        false
+    }
+
     async fn conn(&self) -> Result<Arc<Conn>, FsError> {
         let mut g = self.conn.lock().await;
         if let Some(c) = g.as_ref() {
@@ -483,11 +494,8 @@ impl Pool {
     pub fn reap(&self, idle: Duration) {
         let all: Vec<Arc<Sftp>> = self.map.lock().unwrap().values().cloned().collect();
         for s in all {
-            if let Ok(mut g) = s.conn.try_lock() {
-                if g.as_ref().is_some_and(|c| c.used.lock().unwrap().elapsed() > idle) {
-                    tracing::debug!("mount {}: closing idle connection", s.cfg.id);
-                    *g = None;
-                }
+            if s.close_idle(idle) {
+                tracing::debug!("mount {}: closed idle connection", s.cfg.id);
             }
         }
     }

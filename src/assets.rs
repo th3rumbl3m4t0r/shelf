@@ -30,6 +30,7 @@ macro_rules! asset {
 }
 
 static ASSETS: &[Asset] = &[
+    asset!("i18n.js", JS),
     asset!("x11.css", CSS),
     asset!("x11.js", JS),
     asset!("app.css", CSS),
@@ -122,7 +123,7 @@ async fn file(
 /// Every other GET is a page of the single-page app.
 pub async fn fallback(State(app): State<Arc<App>>, method: Method, uri: Uri) -> Response {
     let p = uri.path();
-    let api = ["/api/", "/s/", "/static/"].iter().any(|x| p.starts_with(x)) || p == "/favicon.ico";
+    let api = ["/api/", "/s/", "/static/", "/oidc/", "/.well-known/"].iter().any(|x| p.starts_with(x)) || p == "/favicon.ico";
     if api || (method != Method::GET && method != Method::HEAD) {
         return AppError::not_found().into_response();
     }
